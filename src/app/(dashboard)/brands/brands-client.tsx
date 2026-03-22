@@ -1,0 +1,442 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogClose,
+} from "@/components/ui/dialog";
+import { Plus, Pencil, Trash2, Loader2, Tag } from "lucide-react";
+import { toast } from "sonner";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface Brand {
+  id: string;
+  name: string;
+  color: string;
+  createdBy: string | null;
+  createdAt: string;
+  assetCount: number;
+}
+
+// ---------------------------------------------------------------------------
+// Preset colors
+// ---------------------------------------------------------------------------
+
+const PRESET_COLORS = [
+  { label: "Red", value: "#ef4444" },
+  { label: "Orange", value: "#f97316" },
+  { label: "Yellow", value: "#eab308" },
+  { label: "Green", value: "#22c55e" },
+  { label: "Blue", value: "#3b82f6" },
+  { label: "Indigo", value: "#6366f1" },
+  { label: "Purple", value: "#a855f7" },
+  { label: "Pink", value: "#ec4899" },
+] as const;
+
+// ---------------------------------------------------------------------------
+// Color Picker
+// ---------------------------------------------------------------------------
+
+function ColorPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (color: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {PRESET_COLORS.map((color) => (
+        <button
+          key={color.value}
+          type="button"
+          title={color.label}
+          onClick={() => onChange(color.value)}
+          className={`size-8 rounded-full border-2 transition-transform hover:scale-110 ${
+            value === color.value
+              ? "border-foreground ring-2 ring-ring ring-offset-2 ring-offset-background"
+              : "border-transparent"
+          }`}
+          style={{ backgroundColor: color.value }}
+        />
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Add Brand Dialog
+// ---------------------------------------------------------------------------
+
+function AddBrandDialog({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [color, setColor] = useState<string>(PRESET_COLORS[5].value); // indigo default
+  const [saving, setSaving] = useState(false);
+
+  function reset() {
+    setName("");
+    setColor(PRESET_COLORS[5].value);
+  }
+
+  async function handleCreate() {
+    if (!name.trim()) {
+      toast.error("Brand name is required");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch("/api/brands", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), color }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to create brand");
+
+      toast.success(`Brand "${data.name}" created`);
+      reset();
+      setOpen(false);
+      onCreated();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to create brand"
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) reset();
+      }}
+    >
+      <DialogTrigger
+        render={<Button size="sm" />}
+      >
+        <Plus className="mr-1.5 h-4 w-4" />
+        Add Brand
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New Brand</DialogTitle>
+          <DialogDescription>
+            Create a brand tag to organize your generated assets.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="brand-name">Name</Label>
+            <Input
+              id="brand-name"
+              placeholder="e.g. Acme Corp"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreate();
+              }}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Color</Label>
+            <ColorPicker value={color} onChange={setColor} />
+          </div>
+        </div>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>
+            Cancel
+          </DialogClose>
+          <Button onClick={handleCreate} disabled={saving}>
+            {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            Create
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Edit Brand Dialog
+// ---------------------------------------------------------------------------
+
+function EditBrandDialog({
+  brand,
+  onUpdated,
+}: {
+  brand: Brand;
+  onUpdated: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState(brand.name);
+  const [color, setColor] = useState(brand.color);
+  const [saving, setSaving] = useState(false);
+
+  function reset() {
+    setName(brand.name);
+    setColor(brand.color);
+  }
+
+  async function handleUpdate() {
+    if (!name.trim()) {
+      toast.error("Brand name is required");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/brands/${brand.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), color }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to update brand");
+
+      toast.success(`Brand "${data.name}" updated`);
+      setOpen(false);
+      onUpdated();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update brand"
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) reset();
+      }}
+    >
+      <DialogTrigger
+        render={<Button variant="ghost" size="icon-sm" />}
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Brand</DialogTitle>
+          <DialogDescription>
+            Update the brand name or color.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor={`edit-name-${brand.id}`}>Name</Label>
+            <Input
+              id={`edit-name-${brand.id}`}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleUpdate();
+              }}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label>Color</Label>
+            <ColorPicker value={color} onChange={setColor} />
+          </div>
+        </div>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>
+            Cancel
+          </DialogClose>
+          <Button onClick={handleUpdate} disabled={saving}>
+            {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Delete Brand Dialog
+// ---------------------------------------------------------------------------
+
+function DeleteBrandDialog({
+  brand,
+  onDeleted,
+}: {
+  brand: Brand;
+  onDeleted: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/brands/${brand.id}`, {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to delete brand");
+
+      toast.success(`Brand "${brand.name}" deleted`);
+      setOpen(false);
+      onDeleted();
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete brand"
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={<Button variant="ghost" size="icon-sm" />}
+      >
+        <Trash2 className="h-3.5 w-3.5 text-destructive" />
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete Brand</DialogTitle>
+          <DialogDescription>
+            Are you sure you want to delete &quot;{brand.name}&quot;? This will
+            remove the brand tag from all associated assets. This action cannot
+            be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>
+            Cancel
+          </DialogClose>
+          <Button
+            variant="destructive"
+            onClick={handleDelete}
+            disabled={deleting}
+          >
+            {deleting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            Delete
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Brand Card
+// ---------------------------------------------------------------------------
+
+function BrandCard({
+  brand,
+  onRefresh,
+}: {
+  brand: Brand;
+  onRefresh: () => void;
+}) {
+  return (
+    <div className="group flex items-center justify-between rounded-lg border p-4 transition-colors hover:bg-muted/30">
+      <div className="flex items-center gap-3 min-w-0">
+        <span
+          className="size-3 shrink-0 rounded-full"
+          style={{ backgroundColor: brand.color }}
+        />
+        <div className="min-w-0">
+          <p className="text-sm font-medium truncate">{brand.name}</p>
+        </div>
+        <Badge variant="secondary" className="shrink-0">
+          {brand.assetCount} {brand.assetCount === 1 ? "asset" : "assets"}
+        </Badge>
+      </div>
+      <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+        <EditBrandDialog brand={brand} onUpdated={onRefresh} />
+        <DeleteBrandDialog brand={brand} onDeleted={onRefresh} />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main Client Component
+// ---------------------------------------------------------------------------
+
+export function BrandsClient() {
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchBrands = useCallback(async () => {
+    try {
+      const res = await fetch("/api/brands");
+      if (!res.ok) throw new Error("Failed to load brands");
+      const data = await res.json();
+      setBrands(data);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to load brands"
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBrands();
+  }, [fetchBrands]);
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-16 w-full rounded-lg" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-end">
+        <AddBrandDialog onCreated={fetchBrands} />
+      </div>
+
+      {brands.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full bg-muted">
+            <Tag className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <h3 className="mt-4 text-sm font-medium">No brands yet</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Create your first brand to start organizing assets.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {brands.map((brand) => (
+            <BrandCard key={brand.id} brand={brand} onRefresh={fetchBrands} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
