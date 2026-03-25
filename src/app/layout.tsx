@@ -15,7 +15,7 @@ const plusJakarta = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Cauldron",
+  title: process.env.NEXT_PUBLIC_STUDIO_NAME ?? process.env.NEXT_PUBLIC_ORG_NAME ?? "OpenCauldron",
   description: "AI-powered media generation studio",
 };
 

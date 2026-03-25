@@ -10,6 +10,7 @@ import {
 } from "@/lib/db/schema";
 import { eq, and, sql, desc } from "drizzle-orm";
 import { getUserXP, getLevelProgress } from "@/lib/xp";
+import { getAssetUrl } from "@/lib/storage";
 
 export async function GET(
   _req: NextRequest,
@@ -126,13 +127,13 @@ export async function GET(
   }
 
   // Get recent assets (last 20)
-  const recentAssets = await db
+  const recentAssetsRaw = await db
     .select({
       id: assets.id,
       mediaType: assets.mediaType,
       model: assets.model,
       prompt: assets.prompt,
-      r2Url: assets.r2Url,
+      r2Key: assets.r2Key,
       thumbnailR2Key: assets.thumbnailR2Key,
       width: assets.width,
       height: assets.height,
@@ -142,6 +143,20 @@ export async function GET(
     .where(eq(assets.userId, userId))
     .orderBy(desc(assets.createdAt))
     .limit(20);
+
+  const recentAssets = await Promise.all(
+    recentAssetsRaw.map(async (a) => ({
+      id: a.id,
+      mediaType: a.mediaType,
+      model: a.model,
+      prompt: a.prompt,
+      url: await getAssetUrl(a.r2Key),
+      thumbnailUrl: a.thumbnailR2Key ? await getAssetUrl(a.thumbnailR2Key) : await getAssetUrl(a.r2Key),
+      width: a.width,
+      height: a.height,
+      createdAt: a.createdAt,
+    }))
+  );
 
   // Build response
   const response: Record<string, unknown> = {

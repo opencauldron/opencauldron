@@ -118,7 +118,7 @@ const badgeDefinitions = [
   {
     id: "founder",
     name: "Founder",
-    description: "Instance creator and owner",
+    description: "Studio creator and owner",
     icon: "Crown",
     category: "special" as const,
     xpReward: 0,

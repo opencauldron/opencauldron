@@ -86,15 +86,23 @@ export function AppSidebar({ user }: AppSidebarProps) {
         {/* Subtle primary accent line at the top */}
         <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-primary/0 via-primary/80 to-primary/0" />
         <Link href="/" className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[oklch(0.50_0.22_280)] to-[oklch(0.40_0.20_300)] text-white shadow-lg shadow-primary/25">
-            <WandSparkles className="h-[18px] w-[18px]" strokeWidth={1.5} />
-          </div>
+          {process.env.NEXT_PUBLIC_ORG_LOGO ? (
+            <img
+              src={process.env.NEXT_PUBLIC_ORG_LOGO}
+              alt={process.env.NEXT_PUBLIC_ORG_NAME ?? ""}
+              className="h-9 w-9 rounded-xl"
+            />
+          ) : (
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-[oklch(0.50_0.22_280)] to-[oklch(0.40_0.20_300)] text-white shadow-lg shadow-primary/25">
+              <WandSparkles className="h-[18px] w-[18px]" strokeWidth={1.5} />
+            </div>
+          )}
           <div>
             <h1 className="font-heading text-lg font-bold tracking-tight">
-              Cauldron
+              {process.env.NEXT_PUBLIC_STUDIO_NAME ?? process.env.NEXT_PUBLIC_ORG_NAME ?? "OpenCauldron"}
             </h1>
             <p className="text-[11px] font-medium uppercase tracking-widest text-muted-foreground/70">
-              Open Source
+              {process.env.NEXT_PUBLIC_ORG_NAME ? process.env.NEXT_PUBLIC_ORG_NAME : "Open Source"}
             </p>
           </div>
         </Link>

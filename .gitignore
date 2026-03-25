@@ -48,6 +48,9 @@ next-env.d.ts
 OPEN_SOURCE_SPEC.md
 /specs/
 
+# org-specific branding (local only, not committed to open source)
+public/logos/taboogrow.png
+
 # claude code local tooling
 .claude/agent-memory/
 .claude/skills/

@@ -57,8 +57,8 @@ interface ProfileData {
     mediaType: string;
     model: string;
     prompt: string;
-    r2Url: string;
-    thumbnailR2Key: string | null;
+    url: string;
+    thumbnailUrl: string;
     width: number | null;
     height: number | null;
     createdAt: string;
@@ -368,7 +368,7 @@ export function ProfileClient({ userId }: ProfileClientProps) {
                 <div className="aspect-square">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={asset.r2Url}
+                    src={asset.thumbnailUrl}
                     alt={asset.prompt.slice(0, 60)}
                     className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                     loading="lazy"

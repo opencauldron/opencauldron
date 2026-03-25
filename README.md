@@ -14,7 +14,15 @@ Open source AI media generation studio. Generate images and videos with 15 AI mo
 
 ## Quick Start
 
-### Option 1: Git Clone (Recommended)
+### Option 1: CLI Wizard (Recommended)
+
+```bash
+npx create-opencauldron@latest
+```
+
+The interactive wizard walks you through database, storage, and AI provider setup — then clones the repo, generates your `.env.local`, installs dependencies, and initializes git. Follow the printed next steps to start your dev server.
+
+### Option 2: Git Clone
 
 ```bash
 git clone https://github.com/opencauldron/opencauldron.git
@@ -28,7 +36,7 @@ bun run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-### Option 2: Docker
+### Option 3: Docker
 
 ```bash
 git clone https://github.com/opencauldron/opencauldron.git

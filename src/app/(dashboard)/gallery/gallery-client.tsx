@@ -39,6 +39,18 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+const PROVIDER_LABELS: Record<string, string> = {
+  google: "Gemini",
+  xai: "Grok",
+  bfl: "Flux",
+  ideogram: "Ideogram",
+  recraft: "Recraft",
+  runway: "Runway",
+  fal: "Kling",
+  minimax: "Hailuo",
+  luma: "Luma",
+};
+
 // -------------------------------------------------------------------
 // Types
 // -------------------------------------------------------------------
@@ -249,22 +261,12 @@ export function GalleryClient() {
     }
   };
 
-  const handleDownload = async (asset: GalleryAsset) => {
-    try {
-      const res = await fetch(asset.url);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      const ext = asset.mediaType === "video" ? "mp4" : "png";
-      a.download = `${asset.model}-${asset.id.slice(0, 8)}.${ext}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("Failed to download:", error);
-    }
+  const handleDownload = (asset: GalleryAsset) => {
+    const a = document.createElement("a");
+    a.href = asset.url;
+    const ext = asset.mediaType === "video" ? "mp4" : "png";
+    a.download = `${asset.model}-${asset.id.slice(0, 8)}.${ext}`;
+    a.click();
   };
 
   const handleAnimate = (asset: GalleryAsset) => {
@@ -486,7 +488,7 @@ export function GalleryClient() {
                   <Badge variant="secondary">
                     {getModelLabel(selectedAsset.model)}
                   </Badge>
-                  <Badge variant="outline">{selectedAsset.provider}</Badge>
+                  <Badge variant="outline">{PROVIDER_LABELS[selectedAsset.provider] ?? selectedAsset.provider}</Badge>
                   {selectedAsset.mediaType === "video" && (
                     <Badge variant="outline" className="gap-1">
                       <Video className="size-3" />
