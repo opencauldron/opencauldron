@@ -15,6 +15,13 @@
       "when": 1774105889846,
       "tag": "0001_vengeful_iron_lad",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1774476247950,
+      "tag": "0002_serious_madelyne_pryor",
+      "breakpoints": true
     }
   ]
 }

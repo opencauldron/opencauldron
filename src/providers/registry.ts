@@ -2,6 +2,7 @@ import type { ModelId, ModelInfo, ModelVariant, GenerationProvider, MediaType } 
 import { imagenProvider, imagenFlashProvider, imagenFlashLiteProvider, imagenUltraProvider, imagenFastProvider } from "./imagen";
 import { grokProvider, grokProProvider } from "./grok";
 import { fluxProvider, fluxDevProvider, fluxKontextProvider, fluxKleinProvider } from "./flux";
+import { fluxLoraProvider } from "./flux-lora";
 import { ideogramProvider } from "./ideogram";
 import { recraftProvider, recraft20bProvider, recraftV4Provider, recraftV4ProProvider } from "./recraft";
 import { veoProvider, veo31Provider, veoFastProvider } from "./veo";
@@ -24,6 +25,7 @@ const allProviders: GenerationProvider[] = [
   fluxDevProvider,
   fluxKontextProvider,
   fluxKleinProvider,
+  fluxLoraProvider,
   ideogramProvider,
   recraftProvider,
   recraft20bProvider,
@@ -53,6 +55,7 @@ const VARIANT_ONLY_IDS: Set<ModelId> = new Set([
   "flux-dev",
   "flux-kontext-pro",
   "flux-2-klein",
+  "flux-lora",
   "recraft-20b",
   "recraft-v4",
   "recraft-v4-pro",
@@ -147,6 +150,14 @@ const VARIANT_GROUPS: Partial<Record<ModelId, ModelVariant[]>> = {
       costPerImage: 0.015,
       avgGenerationTime: 2,
       description: "Budget model. Sub-second inference, great for drafts.",
+    },
+    {
+      id: "flux-lora",
+      label: "LoRA",
+      costPerImage: 0.035,
+      avgGenerationTime: 10,
+      description: "Flux Dev + custom LoRAs from Civitai.",
+      capabilities: { supportsLora: true, supportsGuidance: true, supportsSteps: true },
     },
   ],
   "recraft-v3": [
@@ -366,6 +377,7 @@ function getModelDescription(id: ModelId): string {
     "flux-dev": "Cheaper Flux model. Good quality at lower cost for iteration.",
     "flux-kontext-pro": "Image editing with character consistency and text rendering.",
     "flux-2-klein": "Budget model. Sub-second inference, great for drafts.",
+    "flux-lora": "Flux Dev + custom LoRAs from Civitai.",
     "ideogram-3": "Best-in-class text rendering in images.",
     "recraft-v3": "Design-focused generation with vector and brand-safe styles.",
     "recraft-20b": "Lighter Recraft model. Nearly half the cost, still solid quality.",
@@ -399,6 +411,7 @@ function getAvgGenTime(id: ModelId): number {
     "flux-dev": 8,
     "flux-kontext-pro": 8,
     "flux-2-klein": 2,
+    "flux-lora": 10,
     "ideogram-3": 10,
     "recraft-v3": 8,
     "recraft-20b": 5,

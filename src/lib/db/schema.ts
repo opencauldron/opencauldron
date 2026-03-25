@@ -243,6 +243,31 @@ export const badges = pgTable("badges", {
   sortOrder: integer("sort_order").notNull().default(0),
 });
 
+// ============================================================
+// LoRA Favorites
+// ============================================================
+
+export const loraFavorites = pgTable(
+  "lora_favorites",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    civitaiModelId: integer("civitai_model_id").notNull(),
+    civitaiVersionId: integer("civitai_version_id").notNull(),
+    name: text("name").notNull(),
+    downloadUrl: text("download_url").notNull(),
+    triggerWords: jsonb("trigger_words").$type<string[]>().default([]),
+    previewImageUrl: text("preview_image_url"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("lora_favorites_user_id_idx").on(table.userId),
+    index("lora_favorites_unique_idx").on(table.userId, table.civitaiVersionId),
+  ]
+);
+
 export const userBadges = pgTable(
   "user_badges",
   {

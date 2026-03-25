@@ -20,6 +20,7 @@ export type ModelId =
   | "flux-dev"
   | "flux-kontext-pro"
   | "flux-2-klein"
+  | "flux-lora"
   | "ideogram-3"
   | "recraft-v3"
   | "recraft-20b"
@@ -70,6 +71,7 @@ export interface ModelCapabilities {
   supportsPromptEnhance?: boolean;
   supportsPromptOptimizer?: boolean;
   supportsLoop?: boolean;
+  supportsLora?: boolean;
   // Video-specific
   maxDuration?: number; // seconds
   supportedDurations?: number[]; // e.g. [5, 8, 10]
@@ -87,6 +89,7 @@ export interface ModelVariant {
   costPerSecond?: number;
   avgGenerationTime: number;
   description: string;
+  capabilities?: Partial<ModelCapabilities>; // Variant-specific overrides
 }
 
 export interface ModelInfo {
@@ -131,6 +134,9 @@ export interface GenerationParams {
   imageInput?: string; // R2 URL for image-to-video
   audioEnabled?: boolean;
   cameraControl?: string; // for Ray 2 / Luma concepts
+  // LoRA params
+  loras?: Array<{ path: string; scale: number; triggerWords?: string[] }>;
+  nsfwEnabled?: boolean;
   [key: string]: unknown; // model-specific params
 }
 
@@ -254,4 +260,57 @@ export interface GalleryFilters {
   search?: string;
   cursor?: string;
   limit?: number;
+}
+
+// -- Civitai / LoRA --
+
+export interface CivitaiModel {
+  id: number;
+  name: string;
+  description: string | null;
+  nsfw: boolean;
+  tags: string[];
+  creator: { username: string; image: string | null };
+  stats: {
+    downloadCount: number;
+    thumbsUpCount: number;
+    thumbsDownCount?: number;
+    commentCount?: number;
+    tippedAmountCount?: number;
+  };
+  allowCommercialUse?: string;
+  supportsGeneration?: boolean;
+  modelVersions: CivitaiModelVersion[];
+}
+
+export interface CivitaiModelVersion {
+  id: number;
+  name: string;
+  baseModel: string;
+  trainedWords: string[];
+  publishedAt?: string;
+  stats?: { downloadCount: number; thumbsUpCount: number; thumbsDownCount?: number };
+  files: Array<{
+    id: number;
+    sizeKB: number;
+    downloadUrl: string;
+    metadata: { format: string };
+  }>;
+  images: Array<{
+    url: string;
+    width: number;
+    height: number;
+    nsfwLevel?: number;
+  }>;
+}
+
+export interface SelectedLora {
+  id?: string;
+  civitaiModelId: number;
+  civitaiVersionId: number;
+  name: string;
+  downloadUrl: string;
+  scale: number;
+  triggerWords: string[];
+  previewImageUrl?: string;
 }
