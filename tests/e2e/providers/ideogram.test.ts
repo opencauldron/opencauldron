@@ -1,18 +1,12 @@
 import { describe, test, expect } from "vitest";
-import { generateAndSave } from "../utils/save-to-gallery";
-import { getUserId } from "../utils/get-user";
-import { TEST_PROMPTS } from "../utils/prompts";
+import { generateAndSave } from "../../utils/save-to-gallery";
+import { getUserId } from "../../utils/get-user";
+import { TEST_PROMPTS } from "../../utils/prompts";
 import type { ModelId } from "@/types";
 
-const MODELS: ModelId[] = [
-  "imagen-4",
-  "imagen-flash",
-  "imagen-flash-lite",
-  "imagen-4-ultra",
-  "imagen-4-fast",
-];
+const MODELS: ModelId[] = ["ideogram-3"];
 
-describe("Google Imagen", () => {
+describe("Ideogram", () => {
   for (const modelId of MODELS) {
     const config = TEST_PROMPTS[modelId];
 
@@ -25,6 +19,8 @@ describe("Google Imagen", () => {
           prompt: config.prompt,
           userId,
           aspectRatio: config.aspectRatio,
+          style: config.style,
+          renderingSpeed: config.renderingSpeed,
         });
 
         expect(result.assetId).toBeTruthy();

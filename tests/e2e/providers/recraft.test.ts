@@ -1,7 +1,7 @@
 import { describe, test, expect } from "vitest";
-import { generateAndSave } from "../utils/save-to-gallery";
-import { getUserId } from "../utils/get-user";
-import { TEST_PROMPTS } from "../utils/prompts";
+import { generateAndSave } from "../../utils/save-to-gallery";
+import { getUserId } from "../../utils/get-user";
+import { TEST_PROMPTS } from "../../utils/prompts";
 import type { ModelId } from "@/types";
 
 const MODELS: ModelId[] = [

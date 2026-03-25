@@ -15,7 +15,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "test:providers": "vitest run tests/providers",
+    "test:e2e": "E2E_ENABLED=true vitest run --config vitest.e2e.config.ts",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio"

@@ -1,12 +1,17 @@
 import { describe, test, expect } from "vitest";
-import { generateAndSave } from "../utils/save-to-gallery";
-import { getUserId } from "../utils/get-user";
-import { TEST_PROMPTS } from "../utils/prompts";
+import { generateAndSave } from "../../utils/save-to-gallery";
+import { getUserId } from "../../utils/get-user";
+import { TEST_PROMPTS } from "../../utils/prompts";
 import type { ModelId } from "@/types";
 
-const MODELS: ModelId[] = ["ideogram-3"];
+const MODELS: ModelId[] = [
+  "flux-1.1-pro",
+  "flux-dev",
+  "flux-kontext-pro",
+  "flux-2-klein",
+];
 
-describe("Ideogram", () => {
+describe("BFL Flux", () => {
   for (const modelId of MODELS) {
     const config = TEST_PROMPTS[modelId];
 
@@ -19,8 +24,6 @@ describe("Ideogram", () => {
           prompt: config.prompt,
           userId,
           aspectRatio: config.aspectRatio,
-          style: config.style,
-          renderingSpeed: config.renderingSpeed,
         });
 
         expect(result.assetId).toBeTruthy();

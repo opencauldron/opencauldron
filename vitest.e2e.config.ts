@@ -3,11 +3,10 @@ import path from "path";
 
 export default defineConfig({
   test: {
-    setupFiles: ["./tests/setup.ts"],
-    include: ["tests/**/*.test.ts"],
-    exclude: ["tests/e2e/**"],
+    setupFiles: ["./tests/setup.ts", "./tests/e2e/guard.ts"],
+    include: ["tests/e2e/**/*.test.ts"],
     fileParallelism: false,
-    testTimeout: 30_000,
+    testTimeout: 120_000,
     watch: false,
   },
   resolve: {

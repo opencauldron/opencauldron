@@ -1,17 +1,18 @@
 import { describe, test, expect } from "vitest";
-import { generateAndSave } from "../utils/save-to-gallery";
-import { getUserId } from "../utils/get-user";
-import { TEST_PROMPTS } from "../utils/prompts";
+import { generateAndSave } from "../../utils/save-to-gallery";
+import { getUserId } from "../../utils/get-user";
+import { TEST_PROMPTS } from "../../utils/prompts";
 import type { ModelId } from "@/types";
 
 const MODELS: ModelId[] = [
-  "flux-1.1-pro",
-  "flux-dev",
-  "flux-kontext-pro",
-  "flux-2-klein",
+  "imagen-4",
+  "imagen-flash",
+  "imagen-flash-lite",
+  "imagen-4-ultra",
+  "imagen-4-fast",
 ];
 
-describe("BFL Flux", () => {
+describe("Google Imagen", () => {
   for (const modelId of MODELS) {
     const config = TEST_PROMPTS[modelId];
 
