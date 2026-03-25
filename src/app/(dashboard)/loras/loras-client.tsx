@@ -447,7 +447,7 @@ export function LorasClient() {
                 >
                   {/* Preview */}
                   <div className="aspect-[3/4] bg-muted/20 overflow-hidden">
-                    <LoraImage src={preview?.url} />
+                    <LoraImage src={preview?.url} type={preview?.type} />
                   </div>
 
                   {/* Favorite button */}
@@ -603,11 +603,23 @@ function LoraDetailPanel({
           {images.length > 0 ? (
             <>
               <div className="relative aspect-square rounded-lg overflow-hidden bg-muted/20">
-                <img
-                  src={activeImage?.url}
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
+                {activeImage?.type === "video" ? (
+                  <video
+                    src={activeImage.url}
+                    muted
+                    loop
+                    autoPlay
+                    playsInline
+                    controls
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <img
+                    src={activeImage?.url}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                )}
                 {images.length > 1 ? (
                   <>
                     <button
@@ -775,7 +787,7 @@ function StatCard({
 // Image with fallback
 // ---------------------------------------------------------------------------
 
-function LoraImage({ src }: { src?: string | null }) {
+function LoraImage({ src, type }: { src?: string | null; type?: "image" | "video" }) {
   const [failed, setFailed] = useState(false);
 
   if (!src || failed) {
@@ -783,6 +795,20 @@ function LoraImage({ src }: { src?: string | null }) {
       <div className="h-full w-full flex items-center justify-center">
         <Layers className="h-10 w-10 text-muted-foreground/20" />
       </div>
+    );
+  }
+
+  if (type === "video") {
+    return (
+      <video
+        src={src}
+        muted
+        loop
+        autoPlay
+        playsInline
+        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+        onError={() => setFailed(true)}
+      />
     );
   }
 

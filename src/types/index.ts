@@ -20,6 +20,7 @@ export type ModelId =
   | "flux-dev"
   | "flux-kontext-pro"
   | "flux-2-klein"
+  | "flux-lora"
   | "ideogram-3"
   | "recraft-v3"
   | "recraft-20b"
@@ -35,7 +36,8 @@ export type ModelId =
   | "hailuo-2.3"
   | "hailuo-2.3-fast"
   | "ray-2"
-  | "ray-flash-2";
+  | "ray-flash-2"
+  | "wan-2.1";
 
 export type ProviderName =
   | "google"
@@ -299,6 +301,7 @@ export interface CivitaiModelVersion {
     url: string;
     width: number;
     height: number;
+    type?: "image" | "video";
     nsfwLevel?: number;
   }>;
 }
