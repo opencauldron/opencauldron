@@ -25,6 +25,7 @@ const generateSchema = z.object({
     "flux-dev",
     "flux-kontext-pro",
     "flux-2-klein",
+    "flux-lora",
     "ideogram-3",
     "recraft-v3",
     "recraft-20b",
@@ -65,6 +66,13 @@ const generateSchema = z.object({
   imageInput: z.string().url().optional(),
   audioEnabled: z.boolean().optional(),
   cameraControl: z.string().optional(),
+  // LoRA params
+  loras: z.array(z.object({
+    path: z.string().url(),
+    scale: z.number().min(0).max(4),
+    triggerWords: z.array(z.string()).optional(),
+  })).max(5).optional(),
+  nsfwEnabled: z.boolean().optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -91,6 +99,7 @@ export async function POST(req: NextRequest) {
     seed, outputFormat, resolution, guidance, steps, cfgScale,
     renderingSpeed, personGeneration, watermark, promptEnhance, promptOptimizer, loop,
     duration, imageInput, audioEnabled, cameraControl,
+    loras, nsfwEnabled,
   } = parsed.data;
 
   // Check rate limit
@@ -162,6 +171,7 @@ export async function POST(req: NextRequest) {
         seed, outputFormat, resolution, guidance, steps, cfgScale,
         renderingSpeed, personGeneration, watermark, promptEnhance, promptOptimizer, loop,
         duration, imageInput, audioEnabled, cameraControl,
+        loras, nsfwEnabled,
       },
       status: "processing",
       costEstimate,
@@ -252,6 +262,8 @@ export async function POST(req: NextRequest) {
       personGeneration,
       watermark,
       promptEnhance,
+      loras,
+      nsfwEnabled,
     });
     const durationMs = Date.now() - startTime;
 
@@ -288,6 +300,7 @@ export async function POST(req: NextRequest) {
           aspectRatio, style, negativePrompt, quality,
           seed, outputFormat, resolution, guidance, steps, cfgScale,
           renderingSpeed, personGeneration, watermark, promptEnhance,
+          loras, nsfwEnabled,
         },
         r2Key: uploaded.key,
         r2Url: uploaded.url,
