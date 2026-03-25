@@ -91,7 +91,6 @@ async function callPredictAPI(
     sampleCount: numImages,
     aspectRatio,
     personGeneration: params.personGeneration ?? "allow_adult",
-    addWatermark: params.watermark ?? true,
   };
 
   if (params.negativePrompt) parameters.negativePrompt = params.negativePrompt;

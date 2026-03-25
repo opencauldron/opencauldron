@@ -1,15 +1,15 @@
 import sharp from "sharp";
 import { nanoid } from "nanoid";
+import { r2Backend } from "./r2";
+import { localBackend } from "./local";
 import type { StorageBackend } from "./types";
 
 export type { StorageBackend };
 
 function getBackend(): StorageBackend {
-  const provider = process.env.STORAGE_PROVIDER ?? "r2";
-  if (provider === "local") {
-    return require("./local").localBackend;
-  }
-  return require("./r2").r2Backend;
+  return (process.env.STORAGE_PROVIDER ?? "r2") === "local"
+    ? localBackend
+    : r2Backend;
 }
 
 const THUMBNAIL_WIDTH = 400;

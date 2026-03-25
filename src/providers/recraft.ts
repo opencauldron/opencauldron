@@ -14,6 +14,26 @@ const ASPECT_RATIO_TO_SIZE: Record<string, string> = {
   "1:2": "768x1536",
 };
 
+// V4 Pro generates at 4MP resolution with different supported sizes
+const V4_PRO_ASPECT_RATIO_TO_SIZE: Record<string, string> = {
+  "1:1": "2048x2048",
+  "16:9": "2560x1440",
+  "9:16": "1440x2560",
+  "4:3": "2048x1536",
+  "3:4": "1536x2048",
+  "3:2": "2048x1365",
+  "2:3": "1365x2048",
+};
+
+// V4 supports a subset of sizes
+const V4_ASPECT_RATIO_TO_SIZE: Record<string, string> = {
+  "1:1": "1024x1024",
+  "4:3": "1152x864",
+  "3:4": "864x1152",
+  "3:2": "1248x832",
+  "2:3": "832x1248",
+};
+
 const ASPECT_RATIO_DIMENSIONS: Record<string, { width: number; height: number }> = {
   "1:1": { width: 1024, height: 1024 },
   "16:9": { width: 1536, height: 1024 },
@@ -70,29 +90,38 @@ function createRecraftGenerate(variantId: ModelId) {
     }
 
     const aspectRatio = params.aspectRatio ?? "1:1";
-    const size = ASPECT_RATIO_TO_SIZE[aspectRatio];
+    const sizeMap =
+      variantId === "recraft-v4-pro"
+        ? V4_PRO_ASPECT_RATIO_TO_SIZE
+        : variantId === "recraft-v4"
+          ? V4_ASPECT_RATIO_TO_SIZE
+          : ASPECT_RATIO_TO_SIZE;
+    const size = sizeMap[aspectRatio];
     if (!size) {
       return {
         status: "failed",
-        error: `Unsupported aspect ratio: ${aspectRatio}. Supported: ${Object.keys(ASPECT_RATIO_TO_SIZE).join(", ")}`,
+        error: `Unsupported aspect ratio: ${aspectRatio}. Supported: ${Object.keys(sizeMap).join(", ")}`,
         durationMs: Date.now() - startTime,
       };
     }
 
     const dimensions = ASPECT_RATIO_DIMENSIONS[aspectRatio];
 
-    const style: RecraftStyle =
-      params.style && VALID_STYLES.includes(params.style as RecraftStyle)
-        ? (params.style as RecraftStyle)
-        : "realistic_image";
+    const isV4 = variantId === "recraft-v4" || variantId === "recraft-v4-pro";
 
     const body: Record<string, unknown> = {
       prompt: params.enhancedPrompt ?? params.prompt,
       model: apiModel,
       size,
       response_format: "b64_json",
-      style,
     };
+
+    // V4 models do not support the style parameter
+    if (!isV4 && params.style && VALID_STYLES.includes(params.style as RecraftStyle)) {
+      body.style = params.style;
+    } else if (!isV4) {
+      body.style = "realistic_image";
+    }
 
     if (params.numImages) {
       body.n = params.numImages;

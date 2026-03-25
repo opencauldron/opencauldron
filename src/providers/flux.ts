@@ -41,7 +41,7 @@ async function submitJob(
   height: number,
   apiKey: string,
   params: GenerationParams
-): Promise<string> {
+): Promise<{ id: string; pollingUrl?: string }> {
   const body: Record<string, unknown> = { prompt, width, height, safety_tolerance: 2 };
 
   if (params.seed != null) {
@@ -78,15 +78,17 @@ async function submitJob(
     throw new Error(`BFL API submission failed (${response.status}): ${body}`);
   }
 
-  const data = (await response.json()) as { id: string };
-  return data.id;
+  const data = (await response.json()) as { id: string; polling_url?: string };
+  return { id: data.id, pollingUrl: data.polling_url };
 }
 
 async function pollForResult(
   jobId: string,
-  apiKey: string
+  apiKey: string,
+  pollingUrl?: string
 ): Promise<{ status: string; sample?: string }> {
-  const response = await fetch(`${BFL_API_BASE}/get_result?id=${jobId}`, {
+  const url = pollingUrl ?? `${BFL_API_BASE}/get_result?id=${jobId}`;
+  const response = await fetch(url, {
     method: "GET",
     headers: { "x-key": apiKey },
   });
@@ -122,14 +124,14 @@ function createFluxGenerate(variantId: ModelId) {
       const { width, height } = getDimensions(params.aspectRatio);
       const prompt = params.enhancedPrompt || params.prompt;
 
-      const jobId = await submitJob(endpoint, prompt, width, height, apiKey, params);
+      const { id: jobId, pollingUrl } = await submitJob(endpoint, prompt, width, height, apiKey, params);
 
       const deadline = Date.now() + MAX_POLL_DURATION_MS;
 
       while (Date.now() < deadline) {
         await sleep(POLL_INTERVAL_MS);
 
-        const pollResult = await pollForResult(jobId, apiKey);
+        const pollResult = await pollForResult(jobId, apiKey, pollingUrl);
 
         if (pollResult.status === "Ready" && pollResult.sample) {
           const imageResponse = await fetch(pollResult.sample);

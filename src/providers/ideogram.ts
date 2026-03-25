@@ -2,19 +2,19 @@ import type { GenerationProvider, GenerationParams, GenerationResult } from "@/t
 
 const IDEOGRAM_API_BASE = "https://api.ideogram.ai/v1/ideogram-v3";
 
-// Map our aspect ratio format ("1:1") to Ideogram's format ("ASPECT_1_1")
+// Map our aspect ratio format ("1:1") to Ideogram V3's format ("1x1")
 const ASPECT_RATIO_MAP: Record<string, string> = {
-  "1:1": "ASPECT_1_1",
-  "16:9": "ASPECT_16_9",
-  "9:16": "ASPECT_9_16",
-  "4:3": "ASPECT_4_3",
-  "3:4": "ASPECT_3_4",
-  "3:2": "ASPECT_3_2",
-  "2:3": "ASPECT_2_3",
-  "5:4": "ASPECT_5_4",
-  "4:5": "ASPECT_4_5",
-  "2:1": "ASPECT_2_1",
-  "1:2": "ASPECT_1_2",
+  "1:1": "1x1",
+  "16:9": "16x9",
+  "9:16": "9x16",
+  "4:3": "4x3",
+  "3:4": "3x4",
+  "3:2": "3x2",
+  "2:3": "2x3",
+  "5:4": "5x4",
+  "4:5": "4x5",
+  "2:1": "2x1",
+  "1:2": "1x2",
 };
 
 // Map our style names to Ideogram's style_type enum
@@ -183,7 +183,7 @@ export const ideogramProvider: GenerationProvider = {
     const styleType =
       STYLE_TYPE_MAP[params.style?.toLowerCase() ?? "auto"] ?? "AUTO";
 
-    const imageRequest: IdeogramImageRequest = {
+    const requestBody: Record<string, unknown> = {
       prompt: params.enhancedPrompt ?? params.prompt,
       aspect_ratio: aspectRatio,
       magic_prompt_option: "AUTO",
@@ -191,19 +191,19 @@ export const ideogramProvider: GenerationProvider = {
     };
 
     if (params.negativePrompt) {
-      imageRequest.negative_prompt = params.negativePrompt;
+      requestBody.negative_prompt = params.negativePrompt;
     }
 
     if (params.renderingSpeed) {
-      imageRequest.rendering_speed = params.renderingSpeed as "TURBO" | "DEFAULT" | "QUALITY";
+      requestBody.rendering_speed = params.renderingSpeed as "TURBO" | "DEFAULT" | "QUALITY";
     }
 
     if (params.numImages) {
-      imageRequest.num_images = params.numImages;
+      requestBody.num_images = params.numImages;
     }
 
     if (params.seed !== undefined) {
-      imageRequest.seed = params.seed;
+      requestBody.seed = params.seed;
     }
 
     try {
@@ -214,7 +214,7 @@ export const ideogramProvider: GenerationProvider = {
           "Api-Key": apiKey,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ image_request: imageRequest }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
