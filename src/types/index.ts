@@ -20,7 +20,6 @@ export type ModelId =
   | "flux-dev"
   | "flux-kontext-pro"
   | "flux-2-klein"
-  | "flux-lora"
   | "ideogram-3"
   | "recraft-v3"
   | "recraft-20b"

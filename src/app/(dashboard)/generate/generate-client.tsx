@@ -261,10 +261,6 @@ export function GenerateClient({
       m.variants?.some((v) => v.id === selectedModel),
   );
   const activeVariant = currentModel?.variants?.find((v) => v.id === selectedModel);
-  // Merge variant-specific capability overrides (e.g. flux-lora adds supportsLora)
-  const activeCapabilities = activeVariant?.capabilities
-    ? { ...currentModel?.capabilities, ...activeVariant.capabilities }
-    : currentModel?.capabilities;
   const activeModelLabel = activeVariant
     ? `${currentModel?.name} ${activeVariant.label}`
     : currentModel?.name ?? selectedModel;
@@ -307,7 +303,7 @@ export function GenerateClient({
 
   // Clear LoRAs when switching to a model that doesn't support them
   useEffect(() => {
-    if (!activeCapabilities?.supportsLora && selectedLoras.length > 0) {
+    if (!currentModel?.capabilities.supportsLora && selectedLoras.length > 0) {
       setSelectedLoras([]);
     }
   }, [currentModel, selectedLoras.length]);
@@ -838,7 +834,7 @@ export function GenerateClient({
         </Card>
 
         {/* LoRA Browser — shown when model supports LoRAs */}
-        {activeCapabilities?.supportsLora ? (
+        {currentModel?.capabilities.supportsLora ? (
           <LoraBrowser
             selectedLoras={selectedLoras}
             onLorasChange={setSelectedLoras}

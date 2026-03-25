@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { generations, assets, users } from "@/lib/db/schema";
 import { getProvider } from "@/providers/registry";
+import { fluxLoraProvider } from "@/providers/flux-lora";
 import { uploadAsset } from "@/lib/storage";
 import { getXPReward, awardXP, getUserXP, hasVideoAccess, checkAndAwardBadges, getLevelFromXP } from "@/lib/xp";
 import { eq, and, gte, sql } from "drizzle-orm";
@@ -25,7 +26,6 @@ const generateSchema = z.object({
     "flux-dev",
     "flux-kontext-pro",
     "flux-2-klein",
-    "flux-lora",
     "ideogram-3",
     "recraft-v3",
     "recraft-20b",
@@ -130,14 +130,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // Get provider
-  const provider = getProvider(model as ModelId);
-  if (!provider) {
+  // Get provider — swap to fal.ai LoRA endpoint when LoRAs are selected on a Flux model
+  const baseProvider = getProvider(model as ModelId);
+  if (!baseProvider) {
     return NextResponse.json(
       { error: `Model ${model} is not available` },
       { status: 400 }
     );
   }
+
+  const useLoraProvider = loras && loras.length > 0 && baseProvider.provider === "bfl";
+  const provider = useLoraProvider ? fluxLoraProvider : baseProvider;
 
   const isVideo = provider.mediaType === "video";
   const costEstimate = isVideo

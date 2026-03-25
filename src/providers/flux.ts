@@ -205,6 +205,7 @@ const capabilities = {
   maxBatchSize: 1,
   supportsSeed: true,
   supportsOutputFormat: true,
+  supportsLora: true,
 };
 
 const fluxDevCapabilities = {

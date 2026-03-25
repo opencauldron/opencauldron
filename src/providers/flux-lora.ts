@@ -92,7 +92,7 @@ async function generate(params: GenerationParams): Promise<GenerationResult> {
 }
 
 export const fluxLoraProvider: GenerationProvider = {
-  id: "flux-lora",
+  id: "flux-dev",
   name: "Flux",
   provider: "fal",
   mediaType: "image",
