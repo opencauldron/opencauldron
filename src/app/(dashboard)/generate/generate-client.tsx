@@ -55,8 +55,9 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import type { ModelInfo, ModelVariant, PromptTemplate, MediaType } from "@/types";
+import type { ModelInfo, ModelVariant, PromptTemplate, MediaType, SelectedLora } from "@/types";
 import type { promptModifiers as PromptModifiersType } from "@/providers/prompt-improver";
+import { LoraBrowser } from "./lora-browser";
 
 interface GenerateClientProps {
   imageModels: ModelInfo[];
@@ -248,6 +249,10 @@ export function GenerateClient({
   const [videoJob, setVideoJob] = useState<VideoJob | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // LoRA state
+  const [selectedLoras, setSelectedLoras] = useState<SelectedLora[]>([]);
+  const [nsfwEnabled, setNsfwEnabled] = useState(false);
+
   // Resolve currentModel — selectedModel might be a variant ID, so check
   // both direct match and variant membership
   const currentModel = models.find(
@@ -256,6 +261,10 @@ export function GenerateClient({
       m.variants?.some((v) => v.id === selectedModel),
   );
   const activeVariant = currentModel?.variants?.find((v) => v.id === selectedModel);
+  // Merge variant-specific capability overrides (e.g. flux-lora adds supportsLora)
+  const activeCapabilities = activeVariant?.capabilities
+    ? { ...currentModel?.capabilities, ...activeVariant.capabilities }
+    : currentModel?.capabilities;
   const activeModelLabel = activeVariant
     ? `${currentModel?.name} ${activeVariant.label}`
     : currentModel?.name ?? selectedModel;
@@ -283,6 +292,25 @@ export function GenerateClient({
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, []);
+
+  // Hydrate NSFW from localStorage after mount, then persist changes
+  const nsfwHydrated = useRef(false);
+  useEffect(() => {
+    if (!nsfwHydrated.current) {
+      nsfwHydrated.current = true;
+      const stored = localStorage.getItem("cauldron-nsfw-loras");
+      if (stored === "true") setNsfwEnabled(true);
+      return;
+    }
+    localStorage.setItem("cauldron-nsfw-loras", String(nsfwEnabled));
+  }, [nsfwEnabled]);
+
+  // Clear LoRAs when switching to a model that doesn't support them
+  useEffect(() => {
+    if (!activeCapabilities?.supportsLora && selectedLoras.length > 0) {
+      setSelectedLoras([]);
+    }
+  }, [currentModel, selectedLoras.length]);
 
   // Poll video generation status
   const pollVideoStatus = useCallback(
@@ -441,6 +469,16 @@ export function GenerateClient({
         body.duration = duration;
         body.audioEnabled = audioEnabled;
         if (cameraControl) body.cameraControl = cameraControl;
+      }
+
+      // LoRA params
+      if (selectedLoras.length > 0) {
+        body.loras = selectedLoras.map((l) => ({
+          path: l.downloadUrl,
+          scale: l.scale,
+          triggerWords: l.triggerWords,
+        }));
+        body.nsfwEnabled = nsfwEnabled;
       }
 
       const res = await fetch("/api/generate", {
@@ -798,6 +836,24 @@ export function GenerateClient({
             </CardContent>
           )}
         </Card>
+
+        {/* LoRA Browser — shown when model supports LoRAs */}
+        {activeCapabilities?.supportsLora ? (
+          <LoraBrowser
+            selectedLoras={selectedLoras}
+            onLorasChange={setSelectedLoras}
+            onTriggerWordsChange={(words) => {
+              const newWords = words.filter(
+                (w) => !prompt.toLowerCase().includes(w.toLowerCase())
+              );
+              if (newWords.length > 0) {
+                setPrompt((prev) => `${newWords.join(", ")}, ${prev}`);
+              }
+            }}
+            nsfwEnabled={nsfwEnabled}
+            onNsfwChange={setNsfwEnabled}
+          />
+        ) : null}
 
         {/* Video Progress */}
         {isVideo && videoJob && videoJob.status === "processing" && (
