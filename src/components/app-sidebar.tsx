@@ -34,6 +34,7 @@ import {
   Trophy,
   User,
   Zap,
+  Layers,
 } from "lucide-react";
 
 interface AppSidebarProps {
@@ -49,6 +50,7 @@ const navItems = [
   { title: "Generate", href: "/generate", icon: Wand2 },
   { title: "Gallery", href: "/gallery", icon: Images },
   { title: "Brands", href: "/brands", icon: Tags },
+  { title: "LoRAs", href: "/loras", icon: Layers },
   { title: "Usage", href: "/usage", icon: BarChart3 },
   { title: "Leaderboard", href: "/leaderboard", icon: Trophy },
   { title: "Profile", href: "/profile", icon: User },
