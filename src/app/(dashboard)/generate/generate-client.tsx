@@ -47,6 +47,7 @@ import {
   Tag,
   Check,
   Info,
+  Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -261,6 +262,7 @@ export function GenerateClient({
   const activeModelLogo = currentModel ? MODEL_LOGOS[currentModel.id] : undefined;
   const isVideo = mediaType === "video";
   const isReady = prompt.trim().length > 0 && !isGenerating;
+  const mode = generatedAsset && !isGenerating ? "result" : "input";
 
   // Switch models when media type changes
   useEffect(() => {
@@ -474,14 +476,41 @@ export function GenerateClient({
     }
   }
 
+  function handleBackToInput(clearPrompt: boolean) {
+    setGeneratedAsset(null);
+    setVideoJob(null);
+    setImageLoaded(false);
+    if (clearPrompt) {
+      setPrompt("");
+      setEnhancedPrompt("");
+      setImageInput("");
+      setImageInputPreview("");
+      setAssetBrands([]);
+    }
+  }
+
   const costDisplay = isVideo
     ? `$${((currentModel?.costPerSecond ?? 0) * duration).toFixed(2)}`
     : `$${(currentModel?.costPerImage ?? 0).toFixed(2)}`;
 
   return (
+    <div className="space-y-8">
+      {mode === "input" && (
+        <div className="flex items-center gap-4">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 ring-1 ring-primary/20">
+            <Wand2 className="h-6 w-6 text-primary" />
+          </div>
+          <div>
+            <h1 className="font-heading text-3xl font-bold tracking-tight">Generate</h1>
+            <p className="text-muted-foreground mt-0.5 text-sm">Create images and videos with AI-powered generation.</p>
+          </div>
+        </div>
+      )}
     <div className="grid gap-6 lg:grid-cols-[1fr_400px]">
-      {/* Left: Prompt & Controls */}
+      {/* Left Column */}
       <div className="space-y-5">
+        {mode === "input" ? (
+        <>
         {/* Media Type Toggle */}
         <Tabs
           value={mediaType}
@@ -795,247 +824,85 @@ export function GenerateClient({
             </CardContent>
           </Card>
         )}
+        </>
+        ) : generatedAsset ? (
+        <div className="result-entrance space-y-4">
+        {/* Result Hero — no card wrapper, image fills the space */}
+        <div className="relative overflow-hidden rounded-2xl shadow-2xl shadow-black/30 ring-1 ring-white/[0.06]">
+          {generatedAsset.mediaType === "video" ? (
+            <video
+              src={generatedAsset.url}
+              controls
+              autoPlay
+              muted
+              loop
+              className="w-full"
+            />
+          ) : (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={generatedAsset.url}
+                alt={generatedAsset.prompt}
+                className={`w-full transition-all duration-700 ease-out ${
+                  imageLoaded
+                    ? "opacity-100 scale-100"
+                    : "opacity-0 scale-[0.98]"
+                }`}
+                onLoad={() => setImageLoaded(true)}
+              />
+              {!imageLoaded && (
+                <Skeleton className="absolute inset-0" />
+              )}
+            </>
+          )}
+        </div>
 
-        {/* Generated Result */}
-        {!isGenerating && generatedAsset && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-sm font-medium">
-                {generatedAsset.mediaType === "video" ? (
-                  <Video className="h-4 w-4 text-primary" />
-                ) : (
-                  <ImageIcon className="h-4 w-4 text-primary" />
-                )}
-                Result
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="relative overflow-hidden rounded-xl shadow-lg shadow-black/20 ring-1 ring-foreground/5">
-                  {generatedAsset.mediaType === "video" ? (
-                    <video
-                      src={generatedAsset.url}
-                      controls
-                      autoPlay
-                      muted
-                      loop
-                      className="w-full rounded-xl"
-                    />
-                  ) : (
-                    <>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={generatedAsset.url}
-                        alt={generatedAsset.prompt}
-                        className={`w-full rounded-xl transition-all duration-700 ease-out ${
-                          imageLoaded
-                            ? "opacity-100 scale-100"
-                            : "opacity-0 scale-[0.98]"
-                        }`}
-                        onLoad={() => setImageLoaded(true)}
-                      />
-                      {!imageLoaded && (
-                        <Skeleton className="absolute inset-0 rounded-xl" />
-                      )}
-                    </>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="secondary" className="gap-1 font-normal">
-                    <span>{MODEL_ICONS[generatedAsset.model] ?? "\u{1F3A8}"}</span>
-                    {generatedAsset.model}
-                  </Badge>
-                  {generatedAsset.mediaType === "video" && generatedAsset.duration && (
-                    <Badge variant="outline" className="gap-1 font-normal">
-                      <Clock className="h-3 w-3" />
-                      {generatedAsset.duration}s
-                    </Badge>
-                  )}
-                  {generatedAsset.width && generatedAsset.height && (
-                    <Badge variant="outline" className="gap-1 font-normal">
-                      {generatedAsset.width} x {generatedAsset.height}
-                    </Badge>
-                  )}
-                  <Badge variant="outline" className="gap-1 font-normal">
-                    <DollarSign className="h-3 w-3" />
-                    {generatedAsset.costEstimate.toFixed(3)}
-                  </Badge>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={() => {
-                      const a = document.createElement("a");
-                      a.href = generatedAsset.url;
-                      a.download = `${generatedAsset.id}.${generatedAsset.mediaType === "video" ? "mp4" : "png"}`;
-                      a.click();
-                    }}
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    Download
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={handleGenerate}
-                  >
-                    <RotateCcw className="h-3.5 w-3.5" />
-                    Regenerate
-                  </Button>
-                </div>
-
-                {/* Brand Tagger */}
-                {brands.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Brand</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {brands.map((brand) => {
-                        const isActive = assetBrands.includes(brand.id);
-                        return (
-                          <button
-                            key={brand.id}
-                            onClick={async () => {
-                              const next = isActive
-                                ? assetBrands.filter((b) => b !== brand.id)
-                                : [...assetBrands, brand.id];
-                              setAssetBrands(next);
-                              try {
-                                await fetch(`/api/assets/${generatedAsset.id}`, {
-                                  method: "PATCH",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({ brands: next }),
-                                });
-                                toast.success(isActive ? `Removed ${brand.name}` : `Tagged ${brand.name}`);
-                              } catch {
-                                toast.error("Failed to update brand");
-                                setAssetBrands(assetBrands);
-                              }
-                            }}
-                            className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium cursor-pointer transition-all hover:opacity-80 hover:scale-105"
-                            style={{
-                              backgroundColor: isActive ? `${brand.color}20` : undefined,
-                              borderColor: isActive ? `${brand.color}60` : undefined,
-                              color: isActive ? brand.color : undefined,
-                            }}
-                          >
-                            {isActive ? (
-                              <Check className="h-3 w-3" />
-                            ) : (
-                              <Tag className="h-3 w-3" />
-                            )}
-                            {brand.name}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Image Tools */}
-                {generatedAsset.mediaType === "image" && (
-                  <div className="space-y-2">
-                    <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Tools</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="gap-1.5 text-xs"
-                        onClick={async () => {
-                          toast.loading("Upscaling...", { id: "tool" });
-                          try {
-                            const res = await fetch("/api/generate/tools", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ action: "upscale", imageUrl: generatedAsset.url, provider: "recraft" }),
-                            });
-                            const data = await res.json();
-                            if (!res.ok) throw new Error(data.error);
-                            setGeneratedAsset({ ...generatedAsset, url: data.url, width: data.width, height: data.height });
-                            setImageLoaded(false);
-                            toast.success("Upscaled!", { id: "tool" });
-                          } catch (e) { toast.error(e instanceof Error ? e.message : "Failed", { id: "tool" }); }
-                        }}
-                      >
-                        <Maximize2 className="h-3 w-3" />
-                        Upscale
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="gap-1.5 text-xs"
-                        onClick={async () => {
-                          toast.loading("Removing background...", { id: "tool" });
-                          try {
-                            const res = await fetch("/api/generate/tools", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ action: "remove-background", imageUrl: generatedAsset.url }),
-                            });
-                            const data = await res.json();
-                            if (!res.ok) throw new Error(data.error);
-                            setGeneratedAsset({ ...generatedAsset, url: data.url, width: data.width, height: data.height });
-                            setImageLoaded(false);
-                            toast.success("Background removed!", { id: "tool" });
-                          } catch (e) { toast.error(e instanceof Error ? e.message : "Failed", { id: "tool" }); }
-                        }}
-                      >
-                        <Eraser className="h-3 w-3" />
-                        Remove BG
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="gap-1.5 text-xs"
-                        onClick={async () => {
-                          toast.loading("Vectorizing...", { id: "tool" });
-                          try {
-                            const res = await fetch("/api/generate/tools", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ action: "vectorize", imageUrl: generatedAsset.url }),
-                            });
-                            const data = await res.json();
-                            if (!res.ok) throw new Error(data.error);
-                            const a = document.createElement("a");
-                            a.href = data.url;
-                            a.download = `${generatedAsset.id}.svg`;
-                            a.click();
-                            toast.success("SVG downloaded!", { id: "tool" });
-                          } catch (e) { toast.error(e instanceof Error ? e.message : "Failed", { id: "tool" }); }
-                        }}
-                      >
-                        <FileType className="h-3 w-3" />
-                        Vectorize
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="gap-1.5 text-xs"
-                        onClick={() => {
-                          setImageInput(generatedAsset.url);
-                          setImageInputPreview(generatedAsset.url);
-                          toast.info("Image set as input. Enter a new prompt to edit it.");
-                        }}
-                      >
-                        <Pencil className="h-3 w-3" />
-                        Edit
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        {/* Collapsed Prompt Bar */}
+        <div className="flex items-start gap-3 rounded-xl border border-border/40 bg-card/60 px-4 py-3 backdrop-blur-sm">
+          <p className="flex-1 min-w-0 text-sm text-muted-foreground leading-relaxed line-clamp-2">
+            {generatedAsset.prompt}
+          </p>
+          <div className="flex shrink-0 gap-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground/60 hover:text-foreground"
+              onClick={() => {
+                navigator.clipboard.writeText(generatedAsset.prompt);
+                toast.success("Prompt copied");
+              }}
+            >
+              <Copy className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-xs"
+              onClick={() => handleBackToInput(false)}
+            >
+              <Pencil className="h-3 w-3" />
+              Edit
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-1.5 text-xs"
+              onClick={() => handleBackToInput(true)}
+            >
+              <Sparkles className="h-3 w-3" />
+              New
+            </Button>
+          </div>
+        </div>
+        </div>
+        ) : null}
       </div>
 
-      {/* Right: Model & Parameters */}
+      {/* Right Column */}
       <div className="space-y-5">
+        {mode === "input" ? (
+        <>
         <Card>
           <CardHeader className="pb-3">
             <button
@@ -1568,6 +1435,209 @@ export function GenerateClient({
             )}
           </CardContent>
         </Card>
+        </>
+        ) : generatedAsset ? (
+        <div className="result-entrance space-y-4">
+        {/* Primary Action */}
+        <Button
+          className="w-full gap-2 h-11"
+          onClick={() => {
+            const a = document.createElement("a");
+            a.href = generatedAsset.url;
+            a.download = `${generatedAsset.id}.${generatedAsset.mediaType === "video" ? "mp4" : "png"}`;
+            a.click();
+          }}
+        >
+          <Download className="h-4 w-4" />
+          Download
+        </Button>
+
+        <Button
+          variant="outline"
+          className="w-full gap-2"
+          onClick={handleGenerate}
+        >
+          <RotateCcw className="h-4 w-4" />
+          Regenerate
+        </Button>
+
+        {/* Image Tools */}
+        {generatedAsset.mediaType === "image" && (
+          <Card>
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Tools</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <div className="grid grid-cols-2 gap-1.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-xs justify-start"
+                  onClick={async () => {
+                    toast.loading("Upscaling...", { id: "tool" });
+                    try {
+                      const res = await fetch("/api/generate/tools", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "upscale", imageUrl: generatedAsset.url, provider: "recraft" }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error);
+                      setGeneratedAsset({ ...generatedAsset, url: data.url, width: data.width, height: data.height });
+                      setImageLoaded(false);
+                      toast.success("Upscaled!", { id: "tool" });
+                    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed", { id: "tool" }); }
+                  }}
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                  Upscale
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-xs justify-start"
+                  onClick={async () => {
+                    toast.loading("Removing background...", { id: "tool" });
+                    try {
+                      const res = await fetch("/api/generate/tools", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "remove-background", imageUrl: generatedAsset.url }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error);
+                      setGeneratedAsset({ ...generatedAsset, url: data.url, width: data.width, height: data.height });
+                      setImageLoaded(false);
+                      toast.success("Background removed!", { id: "tool" });
+                    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed", { id: "tool" }); }
+                  }}
+                >
+                  <Eraser className="h-3.5 w-3.5" />
+                  Remove BG
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-xs justify-start"
+                  onClick={async () => {
+                    toast.loading("Vectorizing...", { id: "tool" });
+                    try {
+                      const res = await fetch("/api/generate/tools", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ action: "vectorize", imageUrl: generatedAsset.url }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error);
+                      const a = document.createElement("a");
+                      a.href = data.url;
+                      a.download = `${generatedAsset.id}.svg`;
+                      a.click();
+                      toast.success("SVG downloaded!", { id: "tool" });
+                    } catch (e) { toast.error(e instanceof Error ? e.message : "Failed", { id: "tool" }); }
+                  }}
+                >
+                  <FileType className="h-3.5 w-3.5" />
+                  Vectorize
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-xs justify-start"
+                  onClick={() => {
+                    setImageInput(generatedAsset.url);
+                    setImageInputPreview(generatedAsset.url);
+                    handleBackToInput(false);
+                    toast.info("Image set as input. Enter a new prompt to edit it.");
+                  }}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Brand Tagger */}
+        {brands.length > 0 && (
+          <Card>
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Brand</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <div className="flex flex-wrap gap-1.5">
+                {brands.map((brand) => {
+                  const isActive = assetBrands.includes(brand.id);
+                  return (
+                    <button
+                      key={brand.id}
+                      onClick={async () => {
+                        const next = isActive
+                          ? assetBrands.filter((b) => b !== brand.id)
+                          : [...assetBrands, brand.id];
+                        setAssetBrands(next);
+                        try {
+                          await fetch(`/api/assets/${generatedAsset.id}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ brands: next }),
+                          });
+                          toast.success(isActive ? `Removed ${brand.name}` : `Tagged ${brand.name}`);
+                        } catch {
+                          toast.error("Failed to update brand");
+                          setAssetBrands(assetBrands);
+                        }
+                      }}
+                      className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium cursor-pointer transition-all hover:opacity-80 hover:scale-105"
+                      style={{
+                        backgroundColor: isActive ? `${brand.color}20` : undefined,
+                        borderColor: isActive ? `${brand.color}60` : undefined,
+                        color: isActive ? brand.color : undefined,
+                      }}
+                    >
+                      {isActive ? (
+                        <Check className="h-3 w-3" />
+                      ) : (
+                        <Tag className="h-3 w-3" />
+                      )}
+                      {brand.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Details */}
+        <div className="space-y-2.5 px-1">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Model</span>
+            <Badge variant="secondary" className="gap-1 font-normal text-[11px]">
+              <span>{MODEL_ICONS[generatedAsset.model] ?? "\u{1F3A8}"}</span>
+              {generatedAsset.model}
+            </Badge>
+          </div>
+          {generatedAsset.width && generatedAsset.height && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Dimensions</span>
+              <span className="text-xs tabular-nums text-muted-foreground">{generatedAsset.width} x {generatedAsset.height}</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">Cost</span>
+            <span className="text-xs tabular-nums text-muted-foreground">${generatedAsset.costEstimate.toFixed(3)}</span>
+          </div>
+          {generatedAsset.mediaType === "video" && generatedAsset.duration && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Duration</span>
+              <span className="text-xs tabular-nums text-muted-foreground">{generatedAsset.duration}s</span>
+            </div>
+          )}
+        </div>
+        </div>
+        ) : null}
       </div>
 
       <style>{`
@@ -1575,7 +1645,15 @@ export function GenerateClient({
           0%, 100% { box-shadow: 0 4px 6px -1px color-mix(in oklch, var(--primary) 20%, transparent); }
           50% { box-shadow: 0 4px 14px -1px color-mix(in oklch, var(--primary) 35%, transparent); }
         }
+        @keyframes resultEntrance {
+          from { opacity: 0; transform: translateY(12px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .result-entrance {
+          animation: resultEntrance 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
       `}</style>
+    </div>
     </div>
   );
 }
