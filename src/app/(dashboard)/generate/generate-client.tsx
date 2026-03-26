@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -48,6 +49,7 @@ import {
   Check,
   Info,
   Copy,
+  FlaskConical,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -55,7 +57,20 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import type { ModelInfo, ModelVariant, PromptTemplate, MediaType, SelectedLora } from "@/types";
+import type { ModelInfo, ModelVariant, PromptTemplate, MediaType, SelectedLora, Brew } from "@/types";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+} from "@/components/ui/popover";
 import type { promptModifiers as PromptModifiersType } from "@/providers/prompt-improver";
 import { LoraBrowser } from "./lora-browser";
 
@@ -107,6 +122,7 @@ const MODEL_ICONS: Record<string, string> = {
   "kling-2.1": "\u{1F3AC}",
   "hailuo-2.3": "\u{1F3AC}",
   "ray-2": "\u{1F3AC}",
+  "wan-2.1": "\u{1F3AC}",
 };
 
 const PROMPT_MAX_LENGTH = 2000;
@@ -252,6 +268,16 @@ export function GenerateClient({
   // LoRA state
   const [selectedLoras, setSelectedLoras] = useState<SelectedLora[]>([]);
   const [nsfwEnabled, setNsfwEnabled] = useState(false);
+
+  // Brew state
+  const [showSaveBrew, setShowSaveBrew] = useState(false);
+  const [brewName, setBrewName] = useState("");
+  const [brewDescription, setBrewDescription] = useState("");
+  const [brewIncludePrompt, setBrewIncludePrompt] = useState(true);
+  const [isSavingBrew, setIsSavingBrew] = useState(false);
+  const [brewsPopoverOpen, setBrewsPopoverOpen] = useState(false);
+  const [userBrews, setUserBrews] = useState<Brew[]>([]);
+  const [isLoadingBrews, setIsLoadingBrews] = useState(false);
 
   // Resolve currentModel — selectedModel might be a variant ID, so check
   // both direct match and variant membership
@@ -523,6 +549,115 @@ export function GenerateClient({
     }
   }
 
+  // Save current generation config as a brew
+  async function handleSaveBrew() {
+    if (!brewName.trim()) return;
+    setIsSavingBrew(true);
+    try {
+      const params: Record<string, unknown> = {
+        aspectRatio, style, negativePrompt, seed, outputFormat,
+        resolution: modelResolution, guidance, steps, cfgScale,
+        renderingSpeed, personGeneration, watermark, promptEnhance,
+        promptOptimizer, loop, duration, audioEnabled, cameraControl,
+        nsfwEnabled,
+      };
+      if (selectedLoras.length > 0) {
+        params.loras = selectedLoras.map((l) => ({
+          civitaiModelId: l.civitaiModelId,
+          civitaiVersionId: l.civitaiVersionId,
+          name: l.name,
+          downloadUrl: l.downloadUrl,
+          scale: l.scale,
+          triggerWords: l.triggerWords,
+          previewImageUrl: l.previewImageUrl,
+        }));
+      }
+
+      const res = await fetch("/api/brews", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: brewName.trim(),
+          description: brewDescription.trim() || undefined,
+          model: selectedModel,
+          prompt: brewIncludePrompt ? prompt : undefined,
+          enhancedPrompt: brewIncludePrompt ? enhancedPrompt : undefined,
+          parameters: params,
+          previewUrl: generatedAsset?.url,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to save brew");
+      toast.success("Brew saved!");
+      setShowSaveBrew(false);
+      setBrewName("");
+      setBrewDescription("");
+    } catch {
+      toast.error("Failed to save brew");
+    } finally {
+      setIsSavingBrew(false);
+    }
+  }
+
+  // Load a brew — populate all generation state
+  async function handleLoadBrew(brew: Brew) {
+    const params = (brew.parameters ?? {}) as Record<string, unknown>;
+
+    // Switch model (and media type if needed)
+    const brewModel = brew.model as string;
+    setSelectedModel(brewModel as typeof selectedModel);
+    const isBrewVideo = videoModels.some(
+      (m) => m.id === brewModel || m.variants?.some((v) => v.id === brewModel)
+    );
+    if (isBrewVideo) setMediaType("video");
+    else setMediaType("image");
+
+    // Set prompt
+    if (brew.prompt) setPrompt(brew.prompt);
+    if (brew.enhancedPrompt) setEnhancedPrompt(brew.enhancedPrompt);
+
+    // Set parameters
+    if (params.aspectRatio) setAspectRatio(params.aspectRatio as string);
+    if (params.style) setStyle(params.style as string);
+    if (params.negativePrompt) setNegativePrompt(params.negativePrompt as string);
+    if (params.seed) setSeed(String(params.seed));
+    if (params.outputFormat) setOutputFormat(params.outputFormat as string);
+    if (params.guidance) setGuidance(String(params.guidance));
+    if (params.steps) setSteps(String(params.steps));
+    if (params.cfgScale) setCfgScale(String(params.cfgScale));
+    if (params.renderingSpeed) setRenderingSpeed(params.renderingSpeed as string);
+    if (params.duration) setDuration(params.duration as number);
+    if (params.audioEnabled !== undefined) setAudioEnabled(params.audioEnabled as boolean);
+    if (params.nsfwEnabled) setNsfwEnabled(true);
+
+    // Set LoRAs
+    const savedLoras = params.loras as SelectedLora[] | undefined;
+    if (savedLoras && savedLoras.length > 0) {
+      setSelectedLoras(savedLoras);
+    } else {
+      setSelectedLoras([]);
+    }
+
+    // Increment usage count
+    fetch(`/api/brews/${brew.id}/use`, { method: "POST" }).catch(() => {});
+
+    setBrewsPopoverOpen(false);
+    toast.success(`Loaded brew: ${brew.name}`);
+  }
+
+  // Fetch brews for popover (lazy — only when opened)
+  function handleBrewsPopoverOpen(open: boolean) {
+    setBrewsPopoverOpen(open);
+    if (open && userBrews.length === 0 && !isLoadingBrews) {
+      setIsLoadingBrews(true);
+      fetch("/api/brews")
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((data: { brews: Brew[] }) => setUserBrews(data.brews ?? []))
+        .catch(() => {})
+        .finally(() => setIsLoadingBrews(false));
+    }
+  }
+
   const costDisplay = isVideo
     ? `$${((currentModel?.costPerSecond ?? 0) * duration).toFixed(2)}`
     : `$${(currentModel?.costPerImage ?? 0).toFixed(2)}`;
@@ -678,6 +813,63 @@ export function GenerateClient({
                   <span className="font-medium">{activeModelLabel}</span>
                   <ChevronDown className="h-3 w-3 opacity-50" />
                 </button>
+                {/* Load Brew */}
+                <Popover open={brewsPopoverOpen} onOpenChange={handleBrewsPopoverOpen}>
+                  <PopoverTrigger>
+                    <button className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-border transition-colors cursor-pointer">
+                      <FlaskConical className="h-3 w-3" />
+                      <span>Brew</span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-72 p-0">
+                    <div className="p-3 border-b border-border/50">
+                      <p className="text-xs font-medium">Load a Brew</p>
+                      <p className="text-[10px] text-muted-foreground">Apply a saved recipe</p>
+                    </div>
+                    <div className="max-h-[280px] overflow-y-auto">
+                      {isLoadingBrews ? (
+                        <div className="p-4 space-y-2">
+                          <Skeleton className="h-10 rounded" />
+                          <Skeleton className="h-10 rounded" />
+                        </div>
+                      ) : userBrews.length === 0 ? (
+                        <p className="p-4 text-xs text-muted-foreground text-center">
+                          No brews saved yet
+                        </p>
+                      ) : (
+                        userBrews.map((brew) => (
+                          <button
+                            key={brew.id}
+                            onClick={() => handleLoadBrew(brew)}
+                            className="w-full flex items-start gap-2.5 p-2.5 hover:bg-secondary/50 transition-colors text-left cursor-pointer border-b border-border/30 last:border-0"
+                          >
+                            {brew.previewUrl ? (
+                              <img
+                                src={brew.previewUrl}
+                                alt=""
+                                className="h-9 w-9 rounded object-cover shrink-0"
+                              />
+                            ) : (
+                              <div className="h-9 w-9 rounded bg-muted/30 flex items-center justify-center shrink-0">
+                                <FlaskConical className="h-3.5 w-3.5 text-muted-foreground/40" />
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-medium truncate">{brew.name}</p>
+                              <p className="text-[10px] text-muted-foreground truncate">
+                                {brew.model}
+                                {brew.parameters && (brew.parameters as Record<string, unknown>).loras
+                                  ? ` · ${((brew.parameters as Record<string, unknown>).loras as unknown[]).length} LoRA`
+                                  : ""}
+                              </p>
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
                 {!isVideo && (
                   <span className="text-[11px] tabular-nums text-muted-foreground/60">
                     {activeVariant
@@ -848,6 +1040,7 @@ export function GenerateClient({
             }}
             nsfwEnabled={nsfwEnabled}
             onNsfwChange={setNsfwEnabled}
+            baseModel={selectedModel.startsWith("wan") ? "Wan Video" : undefined}
           />
         ) : null}
 
@@ -1662,6 +1855,21 @@ export function GenerateClient({
           </Card>
         )}
 
+        {/* Save as Brew */}
+        <Button
+          variant="outline"
+          className="w-full gap-2 cursor-pointer"
+          onClick={() => {
+            setBrewName("");
+            setBrewDescription("");
+            setBrewIncludePrompt(true);
+            setShowSaveBrew(true);
+          }}
+        >
+          <FlaskConical className="h-4 w-4" />
+          Save as Brew
+        </Button>
+
         {/* Details */}
         <div className="space-y-2.5 px-1">
           <div className="flex items-center justify-between">
@@ -1705,6 +1913,77 @@ export function GenerateClient({
           animation: resultEntrance 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
       `}</style>
+
+    {/* Save as Brew Dialog */}
+    <Dialog open={showSaveBrew} onOpenChange={setShowSaveBrew}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FlaskConical className="h-5 w-5" />
+            Save as Brew
+          </DialogTitle>
+          <DialogDescription>
+            Save this generation recipe for quick reuse.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label htmlFor="brew-save-name">Name</Label>
+            <Input
+              id="brew-save-name"
+              value={brewName}
+              onChange={(e) => setBrewName(e.target.value)}
+              placeholder="e.g. Anime Portrait Setup"
+              autoFocus
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="brew-save-desc">Description (optional)</Label>
+            <Textarea
+              id="brew-save-desc"
+              value={brewDescription}
+              onChange={(e) => setBrewDescription(e.target.value)}
+              placeholder="What's this brew for?"
+              rows={2}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch
+              id="brew-include-prompt"
+              checked={brewIncludePrompt}
+              onCheckedChange={setBrewIncludePrompt}
+            />
+            <Label htmlFor="brew-include-prompt" className="text-sm cursor-pointer">
+              Include prompt text
+            </Label>
+          </div>
+
+          {/* Preview of what's being saved */}
+          <div className="rounded-lg border border-border/50 bg-secondary/20 p-3 space-y-1.5 text-xs text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <span className="font-medium text-foreground">{activeModelLabel}</span>
+              {selectedLoras.length > 0 ? (
+                <Badge variant="secondary" className="text-[9px]">
+                  {selectedLoras.length} LoRA{selectedLoras.length > 1 ? "s" : ""}
+                </Badge>
+              ) : null}
+            </div>
+            {brewIncludePrompt && prompt ? (
+              <p className="line-clamp-2 italic">"{prompt}"</p>
+            ) : (
+              <p className="opacity-60">Config only — no prompt</p>
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => setShowSaveBrew(false)}>Cancel</Button>
+          <Button onClick={handleSaveBrew} disabled={!brewName.trim() || isSavingBrew}>
+            {isSavingBrew ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+            Save Brew
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     </div>
     </div>
   );

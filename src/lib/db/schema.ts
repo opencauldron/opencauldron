@@ -268,6 +268,34 @@ export const loraFavorites = pgTable(
   ]
 );
 
+// ============================================================
+// Brews (saved generation recipes)
+// ============================================================
+
+export const brews = pgTable(
+  "brews",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    model: text("model").notNull(),
+    prompt: text("prompt"),
+    enhancedPrompt: text("enhanced_prompt"),
+    parameters: jsonb("parameters").$type<Record<string, unknown>>(),
+    previewUrl: text("preview_url"),
+    brandId: uuid("brand_id").references(() => brands.id, { onDelete: "set null" }),
+    usageCount: integer("usage_count").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("brews_user_id_idx").on(table.userId),
+  ]
+);
+
 export const userBadges = pgTable(
   "user_badges",
   {

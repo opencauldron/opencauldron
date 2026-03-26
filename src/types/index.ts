@@ -316,3 +316,21 @@ export interface SelectedLora {
   triggerWords: string[];
   previewImageUrl?: string;
 }
+
+// -- Brews (saved generation recipes) --
+
+export interface Brew {
+  id: string;
+  userId: string;
+  name: string;
+  description: string | null;
+  model: string;
+  prompt: string | null;
+  enhancedPrompt: string | null;
+  parameters: Record<string, unknown> | null;
+  previewUrl: string | null;
+  brandId: string | null;
+  usageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
