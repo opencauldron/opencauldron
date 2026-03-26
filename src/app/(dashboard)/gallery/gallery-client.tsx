@@ -36,7 +36,12 @@ import {
   Wand2,
   Tag,
   Check,
+  FlaskConical,
 } from "lucide-react";
+import { toast } from "sonner";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { useRouter } from "next/navigation";
 
 const PROVIDER_LABELS: Record<string, string> = {
@@ -128,6 +133,13 @@ export function GalleryClient() {
   const [selectedAsset, setSelectedAsset] = useState<GalleryAsset | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Save as Brew
+  const [brewAsset, setBrewAsset] = useState<GalleryAsset | null>(null);
+  const [brewName, setBrewName] = useState("");
+  const [brewDescription, setBrewDescription] = useState("");
+  const [brewIncludePrompt, setBrewIncludePrompt] = useState(true);
+  const [isSavingBrew, setIsSavingBrew] = useState(false);
 
   // Brands
   const [allBrands, setAllBrands] = useState<AssetBrand[]>([]);
@@ -277,6 +289,35 @@ export function GalleryClient() {
       prompt: asset.prompt,
     });
     router.push(`/generate?${params.toString()}`);
+  };
+
+  const handleSaveAsBrew = async () => {
+    if (!brewAsset || !brewName.trim()) return;
+    setIsSavingBrew(true);
+    try {
+      const res = await fetch("/api/brews", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: brewName.trim(),
+          description: brewDescription.trim() || undefined,
+          model: brewAsset.model,
+          prompt: brewIncludePrompt ? brewAsset.prompt : undefined,
+          enhancedPrompt: brewIncludePrompt ? brewAsset.enhancedPrompt : undefined,
+          parameters: brewAsset.parameters,
+          previewUrl: brewAsset.thumbnailUrl || brewAsset.url,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Brew saved!");
+      setBrewAsset(null);
+      setBrewName("");
+      setBrewDescription("");
+    } catch {
+      toast.error("Failed to save brew");
+    } finally {
+      setIsSavingBrew(false);
+    }
   };
 
   const hasFilters = modelFilter || mediaTypeFilter || searchQuery || dateFrom || dateTo;
@@ -621,6 +662,19 @@ export function GalleryClient() {
             </div>
 
             <DialogFooter>
+              {/* Save as Brew */}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setBrewName("");
+                  setBrewDescription("");
+                  setBrewIncludePrompt(true);
+                  setBrewAsset(selectedAsset);
+                }}
+              >
+                <FlaskConical className="size-4 mr-1.5" />
+                Brew
+              </Button>
               {/* Animate button: image-to-video */}
               {selectedAsset.mediaType === "image" && (
                 <Button
@@ -692,6 +746,73 @@ export function GalleryClient() {
             </Button>
           </DialogFooter>
         </DialogContent>
+      </Dialog>
+
+      {/* Save as Brew Dialog */}
+      <Dialog open={!!brewAsset} onOpenChange={(open) => { if (!open) setBrewAsset(null); }}>
+        {brewAsset ? (
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FlaskConical className="h-5 w-5" />
+                Save as Brew
+              </DialogTitle>
+              <DialogDescription>
+                Save this generation&apos;s recipe for quick reuse.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label htmlFor="gallery-brew-name">Name</Label>
+                <Input
+                  id="gallery-brew-name"
+                  value={brewName}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBrewName(e.target.value)}
+                  placeholder="e.g. Anime Portrait Setup"
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="gallery-brew-desc">Description (optional)</Label>
+                <Textarea
+                  id="gallery-brew-desc"
+                  value={brewDescription}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setBrewDescription(e.target.value)}
+                  placeholder="What's this brew for?"
+                  rows={2}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="gallery-brew-prompt"
+                  checked={brewIncludePrompt}
+                  onCheckedChange={setBrewIncludePrompt}
+                />
+                <Label htmlFor="gallery-brew-prompt" className="text-sm cursor-pointer">
+                  Include prompt text
+                </Label>
+              </div>
+              <div className="rounded-lg border border-border/50 bg-secondary/20 p-3 space-y-1.5 text-xs text-muted-foreground">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-foreground">{getModelLabel(brewAsset.model)}</span>
+                  <Badge variant="outline" className="text-[9px]">{brewAsset.provider}</Badge>
+                </div>
+                {brewIncludePrompt && brewAsset.prompt ? (
+                  <p className="line-clamp-2 italic">&quot;{brewAsset.prompt}&quot;</p>
+                ) : (
+                  <p className="opacity-60">Config only — no prompt</p>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setBrewAsset(null)}>Cancel</Button>
+              <Button onClick={handleSaveAsBrew} disabled={!brewName.trim() || isSavingBrew}>
+                {isSavingBrew ? <Loader2 className="size-4 animate-spin mr-1" /> : null}
+                Save Brew
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
       </Dialog>
     </div>
   );
