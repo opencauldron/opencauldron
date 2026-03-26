@@ -1,7 +1,6 @@
-import { createRequire } from "node:module";
+import pkg from "../package.json" with { type: "json" };
 
-const require = createRequire(import.meta.url);
-const { version } = require("../package.json") as { version: string };
+const version: string = pkg.version;
 
 export async function register() {
   if (process.env.NODE_ENV !== "development") return;
