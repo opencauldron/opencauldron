@@ -1,7 +1,3 @@
-import pkg from "../package.json" with { type: "json" };
-
-const version: string = pkg.version;
-
 export async function register() {
   if (process.env.NODE_ENV !== "development") return;
 
@@ -11,6 +7,9 @@ export async function register() {
 }
 
 async function checkForUpdates() {
+  // Dynamic require to avoid Edge Runtime issues — only runs in dev
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { version } = require("../package.json") as { version: string };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
 
