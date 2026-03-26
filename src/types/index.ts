@@ -317,6 +317,22 @@ export interface SelectedLora {
   previewImageUrl?: string;
 }
 
+// -- References (uploaded reference images) --
+
+export interface Reference {
+  id: string;
+  userId: string;
+  url: string;
+  thumbnailUrl: string | null;
+  fileName: string | null;
+  fileSize: number | null;
+  width: number | null;
+  height: number | null;
+  mimeType: string;
+  usageCount: number;
+  createdAt: string;
+}
+
 // -- Brews (saved generation recipes) --
 
 export interface Brew {
@@ -329,6 +345,7 @@ export interface Brew {
   enhancedPrompt: string | null;
   parameters: Record<string, unknown> | null;
   previewUrl: string | null;
+  imageInput: string | null;
   brandId: string | null;
   usageCount: number;
   createdAt: string;

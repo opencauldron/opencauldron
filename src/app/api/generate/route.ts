@@ -6,6 +6,7 @@ import { getProvider } from "@/providers/registry";
 import { fluxLoraProvider } from "@/providers/flux-lora";
 import { uploadAsset } from "@/lib/storage";
 import { getXPReward, awardXP, getUserXP, hasVideoAccess, checkAndAwardBadges, getLevelFromXP } from "@/lib/xp";
+import { references } from "@/lib/db/schema";
 import { eq, and, gte, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { ModelId } from "@/types";
@@ -43,6 +44,7 @@ const generateSchema = z.object({
     "hailuo-2.3-fast",
     "ray-2",
     "ray-flash-2",
+    "wan-2.1",
   ]),
   aspectRatio: z.string().optional(),
   style: z.string().optional(),
@@ -200,6 +202,8 @@ export async function POST(req: NextRequest) {
         promptOptimizer,
         loop,
         negativePrompt,
+        loras,
+        nsfwEnabled,
       });
 
       if (result.status === "failed") {
@@ -222,6 +226,14 @@ export async function POST(req: NextRequest) {
 
       // Check for newly earned badges (async, don't block response)
       const newBadges = await checkAndAwardBadges(userId);
+
+      // Increment reference usage count
+      if (imageInput) {
+        db.update(references)
+          .set({ usageCount: sql`${references.usageCount} + 1` })
+          .where(eq(references.r2Url, imageInput))
+          .catch(() => {});
+      }
 
       return NextResponse.json({
         generationId: generation.id,
@@ -303,7 +315,7 @@ export async function POST(req: NextRequest) {
           aspectRatio, style, negativePrompt, quality,
           seed, outputFormat, resolution, guidance, steps, cfgScale,
           renderingSpeed, personGeneration, watermark, promptEnhance,
-          loras, nsfwEnabled,
+          loras, nsfwEnabled, imageInput,
         },
         r2Key: uploaded.key,
         r2Url: uploaded.url,
@@ -328,6 +340,14 @@ export async function POST(req: NextRequest) {
     // Award XP and check badges after successful generation
     const xpResult = await awardXP(userId, xpReward, "generation", `Generated ${model}`, generation.id);
     const newBadges = await checkAndAwardBadges(userId);
+
+    // Increment reference usage count
+    if (imageInput) {
+      db.update(references)
+        .set({ usageCount: sql`${references.usageCount} + 1` })
+        .where(eq(references.r2Url, imageInput))
+        .catch(() => {});
+    }
 
     return NextResponse.json({
       generationId: generation.id,

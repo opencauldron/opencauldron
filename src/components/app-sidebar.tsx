@@ -36,6 +36,7 @@ import {
   Zap,
   Layers,
   FlaskConical,
+  ImagePlus,
 } from "lucide-react";
 
 interface AppSidebarProps {
@@ -51,6 +52,7 @@ const navItems = [
   { title: "Generate", href: "/generate", icon: Wand2 },
   { title: "Brews", href: "/brews", icon: FlaskConical },
   { title: "Gallery", href: "/gallery", icon: Images },
+  { title: "References", href: "/references", icon: ImagePlus },
   { title: "Brands", href: "/brands", icon: Tags },
   { title: "LoRAs", href: "/loras", icon: Layers },
   { title: "Usage", href: "/usage", icon: BarChart3 },

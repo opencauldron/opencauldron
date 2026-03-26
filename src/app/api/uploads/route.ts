@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { uploadFile } from "@/lib/storage";
+import { uploadFile, generateAndUploadThumbnail } from "@/lib/storage";
+import { db } from "@/lib/db";
+import { references } from "@/lib/db/schema";
 import { nanoid } from "nanoid";
+import sharp from "sharp";
 
 const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
 const ALLOWED_TYPES = [
@@ -51,5 +54,32 @@ export async function POST(req: NextRequest) {
 
   const url = await uploadFile(buffer, key, file.type);
 
-  return NextResponse.json({ url, key });
+  // Get image dimensions
+  const metadata = await sharp(buffer).metadata();
+
+  // Generate thumbnail
+  let thumbnailKey: string | undefined;
+  try {
+    thumbnailKey = await generateAndUploadThumbnail(buffer, key);
+  } catch {
+    // Non-critical — proceed without thumbnail
+  }
+
+  // Track in references table
+  const [ref] = await db
+    .insert(references)
+    .values({
+      userId: session.user.id,
+      r2Key: key,
+      r2Url: url,
+      thumbnailR2Key: thumbnailKey,
+      fileName: file.name,
+      fileSize: file.size,
+      width: metadata.width ?? null,
+      height: metadata.height ?? null,
+      mimeType: file.type,
+    })
+    .returning({ id: references.id });
+
+  return NextResponse.json({ url, key, referenceId: ref.id });
 }

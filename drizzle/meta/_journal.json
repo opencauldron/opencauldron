@@ -29,6 +29,13 @@
       "when": 1774482723959,
       "tag": "0003_nosy_ben_grimm",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1774555319481,
+      "tag": "0004_old_chat",
+      "breakpoints": true
     }
   ]
 }

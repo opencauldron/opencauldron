@@ -13,6 +13,7 @@ const createBrewSchema = z.object({
   enhancedPrompt: z.string().optional(),
   parameters: z.record(z.string(), z.unknown()).optional(),
   previewUrl: z.string().url().optional(),
+  imageInput: z.string().url().optional(),
   brandId: z.string().uuid().optional(),
 });
 
@@ -61,6 +62,7 @@ export async function POST(req: NextRequest) {
       enhancedPrompt: parsed.data.enhancedPrompt,
       parameters: parsed.data.parameters,
       previewUrl: parsed.data.previewUrl,
+      imageInput: parsed.data.imageInput,
       brandId: parsed.data.brandId,
     })
     .returning();

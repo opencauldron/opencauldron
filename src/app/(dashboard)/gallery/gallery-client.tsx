@@ -37,6 +37,7 @@ import {
   Tag,
   Check,
   FlaskConical,
+  ImagePlus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
@@ -306,6 +307,7 @@ export function GalleryClient() {
           enhancedPrompt: brewIncludePrompt ? brewAsset.enhancedPrompt : undefined,
           parameters: brewAsset.parameters,
           previewUrl: brewAsset.thumbnailUrl || brewAsset.url,
+          imageInput: (brewAsset.parameters as Record<string, unknown> | null)?.imageInput as string | undefined,
         }),
       });
       if (!res.ok) throw new Error();
@@ -556,20 +558,45 @@ export function GalleryClient() {
                   </div>
                 )}
 
-                {selectedAsset.parameters && (
-                  <div>
-                    <h4 className="text-sm font-medium text-muted-foreground mb-1">
-                      Parameters
-                    </h4>
-                    <div className="flex flex-wrap gap-1">
-                      {Object.entries(selectedAsset.parameters)
-                        .filter(([, v]) => v != null && v !== "")
-                        .map(([key, value]) => (
+                {(() => {
+                  const params = selectedAsset.parameters;
+                  if (!params) return null;
+                  const entries = Object.entries(params).filter(
+                    ([key, v]) => v != null && v !== "" && key !== "imageInput" && key !== "loras"
+                  );
+                  return entries.length > 0 ? (
+                    <div>
+                      <h4 className="text-sm font-medium text-muted-foreground mb-1">
+                        Parameters
+                      </h4>
+                      <div className="flex flex-wrap gap-1">
+                        {entries.map(([key, value]) => (
                           <Badge key={key} variant="outline" className="text-xs">
                             {key}: {String(value)}
                           </Badge>
                         ))}
+                      </div>
                     </div>
+                  ) : null;
+                })()}
+
+                {typeof selectedAsset.parameters?.imageInput === "string" && (
+                  <div>
+                    <h4 className="text-sm font-medium text-muted-foreground mb-1">
+                      Reference Image
+                    </h4>
+                    <a
+                      href={selectedAsset.parameters.imageInput}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={selectedAsset.parameters.imageInput}
+                        alt="Reference"
+                        className="h-20 w-20 rounded-md object-cover ring-1 ring-border/50 hover:ring-primary transition-all cursor-pointer"
+                      />
+                    </a>
                   </div>
                 )}
 
@@ -675,18 +702,30 @@ export function GalleryClient() {
                 <FlaskConical className="size-4 mr-1.5" />
                 Brew
               </Button>
-              {/* Animate button: image-to-video */}
+              {/* Use as reference / Animate — image assets only */}
               {selectedAsset.mediaType === "image" && (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setSelectedAsset(null);
-                    handleAnimate(selectedAsset);
-                  }}
-                >
-                  <Wand2 className="size-4 mr-1.5" />
-                  Animate
-                </Button>
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSelectedAsset(null);
+                      router.push(`/generate?imageInput=${encodeURIComponent(selectedAsset.url)}`);
+                    }}
+                  >
+                    <ImagePlus className="size-4 mr-1.5" />
+                    Reference
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSelectedAsset(null);
+                      handleAnimate(selectedAsset);
+                    }}
+                  >
+                    <Wand2 className="size-4 mr-1.5" />
+                    Animate
+                  </Button>
+                </>
               )}
               <Button
                 variant="outline"

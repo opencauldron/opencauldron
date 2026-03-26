@@ -50,6 +50,7 @@ import {
   Info,
   Copy,
   FlaskConical,
+  ImagePlus,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -242,6 +243,94 @@ export function GenerateClient({
   const [imageInputPreview, setImageInputPreview] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Hydrate from query params (e.g. from gallery "Animate" or references "Use")
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const imgInput = params.get("imageInput");
+    if (imgInput) {
+      setImageInput(imgInput);
+      setImageInputPreview(imgInput);
+    }
+    const mediaParam = params.get("mediaType");
+    if (mediaParam === "video") setMediaType("video");
+    const promptParam = params.get("prompt");
+    if (promptParam) setPrompt(promptParam);
+  }, []);
+
+  // Reference picker state
+  const [showRefPicker, setShowRefPicker] = useState(false);
+  const [refPickerItems, setRefPickerItems] = useState<Array<{ id: string; url: string; thumbnailUrl: string; fileName: string | null }>>([]);
+  const [refPickerLoading, setRefPickerLoading] = useState(false);
+  const [refPickerCursor, setRefPickerCursor] = useState<string | null>(null);
+
+  function handleRefPickerOpen() {
+    setShowRefPicker(true);
+    if (refPickerItems.length === 0) {
+      setRefPickerLoading(true);
+      fetch("/api/references?limit=20")
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((data: { references: typeof refPickerItems; nextCursor: string | null }) => {
+          setRefPickerItems(data.references);
+          setRefPickerCursor(data.nextCursor);
+        })
+        .catch(() => {})
+        .finally(() => setRefPickerLoading(false));
+    }
+  }
+
+  function handleRefPickerLoadMore() {
+    if (!refPickerCursor || refPickerLoading) return;
+    setRefPickerLoading(true);
+    fetch(`/api/references?limit=20&cursor=${refPickerCursor}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data: { references: typeof refPickerItems; nextCursor: string | null }) => {
+        setRefPickerItems((prev) => [...prev, ...data.references]);
+        setRefPickerCursor(data.nextCursor);
+      })
+      .catch(() => {})
+      .finally(() => setRefPickerLoading(false));
+  }
+
+  function handleRefPickerSelect(ref: { url: string }) {
+    setImageInput(ref.url);
+    setImageInputPreview(ref.url);
+    setShowRefPicker(false);
+    toast.success("Reference image selected");
+  }
+
+  // Gallery picker state (for picking generated assets as references)
+  const [galleryPickerItems, setGalleryPickerItems] = useState<Array<{ id: string; url: string; thumbnailUrl: string; prompt: string }>>([]);
+  const [galleryPickerLoading, setGalleryPickerLoading] = useState(false);
+  const [galleryPickerCursor, setGalleryPickerCursor] = useState<string | null>(null);
+  const [galleryPickerLoaded, setGalleryPickerLoaded] = useState(false);
+
+  function handleGalleryPickerLoad() {
+    if (galleryPickerLoaded) return;
+    setGalleryPickerLoading(true);
+    fetch("/api/assets?mediaType=image&limit=20")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data: { assets: Array<{ id: string; url: string; thumbnailUrl: string; prompt: string }>; nextCursor: string | null }) => {
+        setGalleryPickerItems(data.assets);
+        setGalleryPickerCursor(data.nextCursor);
+        setGalleryPickerLoaded(true);
+      })
+      .catch(() => {})
+      .finally(() => setGalleryPickerLoading(false));
+  }
+
+  function handleGalleryPickerLoadMore() {
+    if (!galleryPickerCursor || galleryPickerLoading) return;
+    setGalleryPickerLoading(true);
+    fetch(`/api/assets?mediaType=image&limit=20&cursor=${galleryPickerCursor}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data: { assets: Array<{ id: string; url: string; thumbnailUrl: string; prompt: string }>; nextCursor: string | null }) => {
+        setGalleryPickerItems((prev) => [...prev, ...data.assets]);
+        setGalleryPickerCursor(data.nextCursor);
+      })
+      .catch(() => {})
+      .finally(() => setGalleryPickerLoading(false));
+  }
 
   // Advanced params state
   const [seed, setSeed] = useState<string>("");
@@ -584,6 +673,7 @@ export function GenerateClient({
           enhancedPrompt: brewIncludePrompt ? enhancedPrompt : undefined,
           parameters: params,
           previewUrl: generatedAsset?.url,
+          imageInput: imageInput || undefined,
         }),
       });
 
@@ -636,6 +726,15 @@ export function GenerateClient({
       setSelectedLoras(savedLoras);
     } else {
       setSelectedLoras([]);
+    }
+
+    // Restore reference image
+    if (brew.imageInput) {
+      setImageInput(brew.imageInput);
+      setImageInputPreview(brew.imageInput);
+    } else {
+      setImageInput("");
+      setImageInputPreview("");
     }
 
     // Increment usage count
@@ -764,19 +863,29 @@ export function GenerateClient({
                   </Button>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploading}
-                  className="flex w-full items-center gap-2 rounded-lg border border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-border hover:text-foreground hover:bg-secondary/30"
-                >
-                  {isUploading ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Upload className="h-3.5 w-3.5" />
-                  )}
-                  {isUploading ? "Uploading..." : "Upload reference image"}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isUploading}
+                    className="flex flex-1 items-center gap-2 rounded-lg border border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-border hover:text-foreground hover:bg-secondary/30"
+                  >
+                    {isUploading ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Upload className="h-3.5 w-3.5" />
+                    )}
+                    {isUploading ? "Uploading..." : "Upload reference image"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRefPickerOpen}
+                    className="flex items-center gap-2 rounded-lg border border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground transition-colors hover:border-border hover:text-foreground hover:bg-secondary/30"
+                  >
+                    <ImagePlus className="h-3.5 w-3.5" />
+                    Browse
+                  </button>
+                </div>
               )}
             </div>
 
@@ -1982,6 +2091,126 @@ export function GenerateClient({
             Save Brew
           </Button>
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    {/* Reference Picker Dialog */}
+    <Dialog open={showRefPicker} onOpenChange={setShowRefPicker}>
+      <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <ImagePlus className="h-5 w-5" />
+            Browse References
+          </DialogTitle>
+          <DialogDescription>
+            Select a reference image from your uploads or gallery.
+          </DialogDescription>
+        </DialogHeader>
+        <Tabs defaultValue="uploads" onValueChange={(v) => { if (v === "gallery") handleGalleryPickerLoad(); }}>
+          <TabsList className="w-full">
+            <TabsTrigger value="uploads" className="flex-1">Uploads</TabsTrigger>
+            <TabsTrigger value="gallery" className="flex-1">Gallery</TabsTrigger>
+          </TabsList>
+
+          {/* Uploads tab */}
+          <TabsContent value="uploads" className="mt-3">
+            {refPickerLoading && refPickerItems.length === 0 ? (
+              <div className="grid grid-cols-3 gap-2">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="aspect-square rounded-lg" />
+                ))}
+              </div>
+            ) : refPickerItems.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                No reference images yet. Upload one above.
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  {refPickerItems.map((ref) => (
+                    <button
+                      key={ref.id}
+                      type="button"
+                      onClick={() => handleRefPickerSelect(ref)}
+                      className="group relative aspect-square overflow-hidden rounded-lg bg-muted cursor-pointer transition-all hover:ring-2 hover:ring-primary focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={ref.thumbnailUrl}
+                        alt={ref.fileName ?? "Reference"}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                    </button>
+                  ))}
+                </div>
+                {refPickerCursor && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full mt-2"
+                    onClick={handleRefPickerLoadMore}
+                    disabled={refPickerLoading}
+                  >
+                    {refPickerLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                    Load more
+                  </Button>
+                )}
+              </>
+            )}
+          </TabsContent>
+
+          {/* Gallery tab */}
+          <TabsContent value="gallery" className="mt-3">
+            {galleryPickerLoading && galleryPickerItems.length === 0 ? (
+              <div className="grid grid-cols-3 gap-2">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Skeleton key={i} className="aspect-square rounded-lg" />
+                ))}
+              </div>
+            ) : galleryPickerItems.length === 0 && galleryPickerLoaded ? (
+              <p className="text-sm text-muted-foreground text-center py-8">
+                No generated images yet.
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-2">
+                  {galleryPickerItems.map((asset) => (
+                    <button
+                      key={asset.id}
+                      type="button"
+                      onClick={() => handleRefPickerSelect(asset)}
+                      className="group relative aspect-square overflow-hidden rounded-lg bg-muted cursor-pointer transition-all hover:ring-2 hover:ring-primary focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={asset.thumbnailUrl}
+                        alt={asset.prompt}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                      <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/60 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <p className="line-clamp-2 text-[10px] text-white/90 leading-tight">{asset.prompt}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                {galleryPickerCursor && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full mt-2"
+                    onClick={handleGalleryPickerLoadMore}
+                    disabled={galleryPickerLoading}
+                  >
+                    {galleryPickerLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                    Load more
+                  </Button>
+                )}
+              </>
+            )}
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
     </div>

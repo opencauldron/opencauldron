@@ -286,6 +286,7 @@ export const brews = pgTable(
     enhancedPrompt: text("enhanced_prompt"),
     parameters: jsonb("parameters").$type<Record<string, unknown>>(),
     previewUrl: text("preview_url"),
+    imageInput: text("image_input"),
     brandId: uuid("brand_id").references(() => brands.id, { onDelete: "set null" }),
     usageCount: integer("usage_count").notNull().default(0),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -293,6 +294,34 @@ export const brews = pgTable(
   },
   (table) => [
     index("brews_user_id_idx").on(table.userId),
+  ]
+);
+
+// ============================================================
+// References (uploaded reference images)
+// ============================================================
+
+export const references = pgTable(
+  "references",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    r2Key: text("r2_key").notNull(),
+    r2Url: text("r2_url").notNull(),
+    thumbnailR2Key: text("thumbnail_r2_key"),
+    fileName: text("file_name"),
+    fileSize: integer("file_size"),
+    width: integer("width"),
+    height: integer("height"),
+    mimeType: text("mime_type").notNull(),
+    usageCount: integer("usage_count").notNull().default(0),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("references_user_id_idx").on(table.userId),
+    index("references_created_at_idx").on(table.createdAt),
   ]
 );
 
