@@ -999,11 +999,9 @@ export function GenerateClient({
                 </button>
                 {/* Load Brew */}
                 <Popover open={brewsPopoverOpen} onOpenChange={handleBrewsPopoverOpen}>
-                  <PopoverTrigger>
-                    <button className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-border transition-colors cursor-pointer">
+                  <PopoverTrigger className="flex items-center gap-1.5 rounded-lg border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-border transition-colors cursor-pointer">
                       <FlaskConical className="h-3 w-3" />
                       <span>Brew</span>
-                    </button>
                   </PopoverTrigger>
                   <PopoverContent align="start" className="w-72 p-0">
                     <div className="p-3 border-b border-border/50">
