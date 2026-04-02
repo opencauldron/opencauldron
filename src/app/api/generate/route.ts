@@ -3,7 +3,6 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { generations, assets, users } from "@/lib/db/schema";
 import { getProvider } from "@/providers/registry";
-import { fluxLoraProvider } from "@/providers/flux-lora";
 import { uploadAsset } from "@/lib/storage";
 import { getXPReward, awardXP, getUserXP, hasVideoAccess, checkAndAwardBadges, getLevelFromXP } from "@/lib/xp";
 import { references } from "@/lib/db/schema";
@@ -65,7 +64,7 @@ const generateSchema = z.object({
   loop: z.boolean().optional(),
   // Video params
   duration: z.number().min(1).max(60).optional(),
-  imageInput: z.string().url().optional(),
+  imageInput: z.array(z.string().url()).max(4).optional(),
   audioEnabled: z.boolean().optional(),
   cameraControl: z.string().optional(),
   // LoRA params
@@ -141,8 +140,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const useLoraProvider = loras && loras.length > 0 && baseProvider.provider === "bfl";
-  const provider = useLoraProvider ? fluxLoraProvider : baseProvider;
+  const provider = baseProvider;
 
   const isVideo = provider.mediaType === "video";
   const costEstimate = isVideo
@@ -228,11 +226,13 @@ export async function POST(req: NextRequest) {
       const newBadges = await checkAndAwardBadges(userId);
 
       // Increment reference usage count
-      if (imageInput) {
-        db.update(references)
-          .set({ usageCount: sql`${references.usageCount} + 1` })
-          .where(eq(references.r2Url, imageInput))
-          .catch(() => {});
+      if (imageInput && imageInput.length > 0) {
+        for (const url of imageInput) {
+          db.update(references)
+            .set({ usageCount: sql`${references.usageCount} + 1` })
+            .where(eq(references.r2Url, url))
+            .catch(() => {});
+        }
       }
 
       return NextResponse.json({
@@ -279,6 +279,7 @@ export async function POST(req: NextRequest) {
       promptEnhance,
       loras,
       nsfwEnabled,
+      imageInput,
     });
     const durationMs = Date.now() - startTime;
 
@@ -342,11 +343,13 @@ export async function POST(req: NextRequest) {
     const newBadges = await checkAndAwardBadges(userId);
 
     // Increment reference usage count
-    if (imageInput) {
-      db.update(references)
-        .set({ usageCount: sql`${references.usageCount} + 1` })
-        .where(eq(references.r2Url, imageInput))
-        .catch(() => {});
+    if (imageInput && imageInput.length > 0) {
+      for (const url of imageInput) {
+        db.update(references)
+          .set({ usageCount: sql`${references.usageCount} + 1` })
+          .where(eq(references.r2Url, url))
+          .catch(() => {});
+      }
     }
 
     return NextResponse.json({

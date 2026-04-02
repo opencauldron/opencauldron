@@ -23,9 +23,9 @@ async function submitGeneration(
   };
 
   // Image-to-video
-  if (params.imageInput) {
+  if (params.imageInput?.length) {
     body.model = "I2V-01-Director";
-    body.first_frame_image = params.imageInput;
+    body.first_frame_image = params.imageInput[0];
   }
 
   if (params.promptOptimizer !== undefined) {
@@ -141,9 +141,9 @@ export const hailuoFastProvider: GenerationProvider = {
       prompt,
       duration: params.duration ?? 6,
     };
-    if (params.imageInput) {
+    if (params.imageInput?.length) {
       body.model = "I2V-01-Director";
-      body.first_frame_image = params.imageInput;
+      body.first_frame_image = params.imageInput[0];
     }
     if (params.promptOptimizer !== undefined) body.prompt_optimizer = params.promptOptimizer;
 

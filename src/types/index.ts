@@ -20,7 +20,6 @@ export type ModelId =
   | "flux-dev"
   | "flux-kontext-pro"
   | "flux-2-klein"
-  | "flux-lora"
   | "ideogram-3"
   | "recraft-v3"
   | "recraft-20b"
@@ -73,6 +72,7 @@ export interface ModelCapabilities {
   supportsPromptOptimizer?: boolean;
   supportsLoop?: boolean;
   supportsLora?: boolean;
+  supportsImageInput?: boolean; // reference image for image-to-image editing
   // Video-specific
   maxDuration?: number; // seconds
   supportedDurations?: number[]; // e.g. [5, 8, 10]
@@ -132,7 +132,7 @@ export interface GenerationParams {
   loop?: boolean; // Luma loop mode
   // Video params
   duration?: number; // seconds
-  imageInput?: string; // R2 URL for image-to-video
+  imageInput?: string[]; // R2 URLs for reference / image-to-video (max 4)
   audioEnabled?: boolean;
   cameraControl?: string; // for Ray 2 / Luma concepts
   // LoRA params
@@ -345,7 +345,7 @@ export interface Brew {
   enhancedPrompt: string | null;
   parameters: Record<string, unknown> | null;
   previewUrl: string | null;
-  imageInput: string | null;
+  imageInput: string[] | null;
   brandId: string | null;
   usageCount: number;
   createdAt: string;

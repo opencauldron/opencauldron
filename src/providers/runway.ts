@@ -27,7 +27,7 @@ async function submitTask(
   const ratio = ASPECT_RATIO_TO_PIXELS[params.aspectRatio ?? "16:9"] ?? "1280:720";
 
   // Determine endpoint and body based on whether we have an image input
-  const hasImage = !!params.imageInput;
+  const hasImage = !!params.imageInput?.length;
   const endpoint = hasImage ? "image_to_video" : "text_to_video";
 
   const body: Record<string, unknown> = {
@@ -38,7 +38,7 @@ async function submitTask(
   };
 
   if (hasImage) {
-    body.promptImage = params.imageInput;
+    body.promptImage = params.imageInput![0];
   }
 
   if (params.seed !== undefined) {
@@ -118,7 +118,7 @@ export const runwayGen45Provider: GenerationProvider = {
     // gen4.5 supports both text and image to video
     const apiKey = getApiKey();
     const ratio = ASPECT_RATIO_TO_PIXELS[params.aspectRatio ?? "16:9"] ?? "1280:720";
-    const hasImage = !!params.imageInput;
+    const hasImage = !!params.imageInput?.length;
     const endpoint = hasImage ? "image_to_video" : "text_to_video";
     const body: Record<string, unknown> = {
       model: "gen4.5",
@@ -126,7 +126,7 @@ export const runwayGen45Provider: GenerationProvider = {
       duration: params.duration ?? 5,
       ratio,
     };
-    if (hasImage) body.promptImage = params.imageInput;
+    if (hasImage) body.promptImage = params.imageInput![0];
     if (params.seed !== undefined) body.seed = params.seed;
 
     const response = await fetch(`${RUNWAY_API_BASE}/${endpoint}`, {

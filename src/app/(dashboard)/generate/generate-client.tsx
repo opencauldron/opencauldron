@@ -59,6 +59,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import type { ModelInfo, ModelVariant, PromptTemplate, MediaType, SelectedLora, Brew } from "@/types";
+import { normalizeImageInputs } from "@/lib/normalize-image-inputs";
 import {
   Dialog,
   DialogContent,
@@ -214,7 +215,7 @@ export function GenerateClient({
   const [prompt, setPrompt] = useState("");
   const [enhancedPrompt, setEnhancedPrompt] = useState("");
   const [selectedModel, setSelectedModel] = useState(models[0]?.id ?? "");
-  const [aspectRatio, setAspectRatio] = useState("16:9");
+  const [aspectRatio, setAspectRatio] = useState("1:1");
   const [style, setStyle] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
@@ -238,19 +239,21 @@ export function GenerateClient({
       .catch(() => {});
   }, []);
 
-  // Image input state
-  const [imageInput, setImageInput] = useState("");
-  const [imageInputPreview, setImageInputPreview] = useState("");
+  // Image input state (multi-reference, up to 4)
+  const MAX_REFERENCE_IMAGES = 4;
+  const [imageInputs, setImageInputs] = useState<string[]>([]);
+  const [imageInputPreviews, setImageInputPreviews] = useState<string[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const canAddMoreImages = imageInputs.length < MAX_REFERENCE_IMAGES;
 
   // Hydrate from query params (e.g. from gallery "Animate" or references "Use")
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const imgInput = params.get("imageInput");
     if (imgInput) {
-      setImageInput(imgInput);
-      setImageInputPreview(imgInput);
+      setImageInputs([imgInput]);
+      setImageInputPreviews([imgInput]);
     }
     const mediaParam = params.get("mediaType");
     if (mediaParam === "video") setMediaType("video");
@@ -293,10 +296,18 @@ export function GenerateClient({
   }
 
   function handleRefPickerSelect(ref: { url: string }) {
-    setImageInput(ref.url);
-    setImageInputPreview(ref.url);
+    if (imageInputs.length >= MAX_REFERENCE_IMAGES) {
+      toast.error(`Maximum ${MAX_REFERENCE_IMAGES} reference images`);
+      return;
+    }
+    if (imageInputs.includes(ref.url)) {
+      toast.error("Image already added");
+      return;
+    }
+    setImageInputs((prev) => [...prev, ref.url]);
+    setImageInputPreviews((prev) => [...prev, ref.url]);
     setShowRefPicker(false);
-    toast.success("Reference image selected");
+    toast.success("Reference image added");
   }
 
   // Gallery picker state (for picking generated assets as references)
@@ -487,6 +498,10 @@ export function GenerateClient({
       toast.error("Image must be under 10 MB");
       return;
     }
+    if (imageInputs.length >= MAX_REFERENCE_IMAGES) {
+      toast.error(`Maximum ${MAX_REFERENCE_IMAGES} reference images`);
+      return;
+    }
     setIsUploading(true);
     try {
       const formData = new FormData();
@@ -494,20 +509,26 @@ export function GenerateClient({
       const res = await fetch("/api/uploads", { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setImageInput(data.url);
-      setImageInputPreview(URL.createObjectURL(file));
+      setImageInputs((prev) => [...prev, data.url]);
+      setImageInputPreviews((prev) => [...prev, URL.createObjectURL(file)]);
       toast.success("Image uploaded");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Upload failed");
     } finally {
       setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
-  function clearImageInput() {
-    setImageInput("");
-    setImageInputPreview("");
+  function clearAllImageInputs() {
+    setImageInputs([]);
+    setImageInputPreviews([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function removeImageInput(index: number) {
+    setImageInputs((prev) => prev.filter((_, i) => i !== index));
+    setImageInputPreviews((prev) => prev.filter((_, i) => i !== index));
   }
 
   async function handleEnhance() {
@@ -559,7 +580,7 @@ export function GenerateClient({
         style: style || undefined,
       };
 
-      if (imageInput) body.imageInput = imageInput;
+      if (imageInputs.length > 0) body.imageInput = imageInputs;
 
       // Advanced params (only send if set)
       if (seed) body.seed = parseInt(seed, 10);
@@ -632,8 +653,8 @@ export function GenerateClient({
     if (clearPrompt) {
       setPrompt("");
       setEnhancedPrompt("");
-      setImageInput("");
-      setImageInputPreview("");
+      setImageInputs([]);
+      setImageInputPreviews([]);
       setAssetBrands([]);
     }
   }
@@ -673,7 +694,7 @@ export function GenerateClient({
           enhancedPrompt: brewIncludePrompt ? enhancedPrompt : undefined,
           parameters: params,
           previewUrl: generatedAsset?.url,
-          imageInput: imageInput || undefined,
+          imageInput: imageInputs.length > 0 ? imageInputs : undefined,
         }),
       });
 
@@ -728,14 +749,10 @@ export function GenerateClient({
       setSelectedLoras([]);
     }
 
-    // Restore reference image
-    if (brew.imageInput) {
-      setImageInput(brew.imageInput);
-      setImageInputPreview(brew.imageInput);
-    } else {
-      setImageInput("");
-      setImageInputPreview("");
-    }
+    // Restore reference images (handles both old string and new array format)
+    const restoredImages = normalizeImageInputs(brew.imageInput);
+    setImageInputs(restoredImages);
+    setImageInputPreviews(restoredImages);
 
     // Increment usage count
     fetch(`/api/brews/${brew.id}/use`, { method: "POST" }).catch(() => {});
@@ -839,28 +856,64 @@ export function GenerateClient({
                   if (file) handleImageUpload(file);
                 }}
               />
-              {imageInputPreview ? (
-                <div className="flex items-center gap-3 rounded-lg border border-border/60 bg-secondary/30 p-2">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={imageInputPreview}
-                    alt="Input image"
-                    className="h-14 w-14 rounded-md object-cover ring-1 ring-border/50"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium truncate">Reference image</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {isVideo ? "Will be used as first frame" : "Uploaded as reference"}
-                    </p>
+              {imageInputPreviews.length > 0 ? (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap gap-2">
+                    {imageInputPreviews.map((preview, i) => (
+                      <div key={i} className="relative group">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={preview}
+                          alt={`Reference ${i + 1}`}
+                          className="h-14 w-14 rounded-md object-cover ring-1 ring-border/50"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeImageInput(i)}
+                          className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 shrink-0"
-                    onClick={clearImageInput}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    {canAddMoreImages && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={isUploading}
+                          className="flex items-center gap-1.5 rounded-md border border-dashed border-border/60 px-2.5 py-1.5 text-[11px] text-muted-foreground transition-colors hover:border-border hover:text-foreground hover:bg-secondary/30"
+                        >
+                          {isUploading ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Upload className="h-3 w-3" />
+                          )}
+                          Add
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleRefPickerOpen}
+                          className="flex items-center gap-1.5 rounded-md border border-dashed border-border/60 px-2.5 py-1.5 text-[11px] text-muted-foreground transition-colors hover:border-border hover:text-foreground hover:bg-secondary/30"
+                        >
+                          <ImagePlus className="h-3 w-3" />
+                          Browse
+                        </button>
+                      </>
+                    )}
+                    <span className="text-[11px] text-muted-foreground ml-auto">
+                      {imageInputPreviews.length}/{MAX_REFERENCE_IMAGES} {isVideo ? "first frame" : "references"}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={clearAllImageInputs}
+                      className="text-[11px] text-muted-foreground hover:text-destructive transition-colors"
+                    >
+                      Clear all
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="flex gap-2">
@@ -1899,8 +1952,8 @@ export function GenerateClient({
                   size="sm"
                   className="gap-1.5 text-xs justify-start"
                   onClick={() => {
-                    setImageInput(generatedAsset.url);
-                    setImageInputPreview(generatedAsset.url);
+                    setImageInputs([generatedAsset.url]);
+                    setImageInputPreviews([generatedAsset.url]);
                     handleBackToInput(false);
                     toast.info("Image set as input. Enter a new prompt to edit it.");
                   }}

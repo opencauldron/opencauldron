@@ -286,7 +286,7 @@ export const brews = pgTable(
     enhancedPrompt: text("enhanced_prompt"),
     parameters: jsonb("parameters").$type<Record<string, unknown>>(),
     previewUrl: text("preview_url"),
-    imageInput: text("image_input"),
+    imageInput: jsonb("image_input").$type<string[]>(),
     brandId: uuid("brand_id").references(() => brands.id, { onDelete: "set null" }),
     usageCount: integer("usage_count").notNull().default(0),
     createdAt: timestamp("created_at").defaultNow().notNull(),

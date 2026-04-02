@@ -16,7 +16,7 @@ async function submitJob(
   params: GenerationParams,
   apiKey: string
 ): Promise<string> {
-  const endpoint = params.imageInput
+  const endpoint = params.imageInput?.length
     ? "fal-ai/kling-video/v2.1/standard/image-to-video"
     : "fal-ai/kling-video/v2.1/standard/text-to-video";
 
@@ -31,8 +31,8 @@ async function submitJob(
     body.cfg_scale = params.cfgScale;
   }
 
-  if (params.imageInput) {
-    body.image_url = params.imageInput;
+  if (params.imageInput?.length) {
+    body.image_url = params.imageInput[0];
   }
 
   const response = await fetch(`${FAL_API_BASE}/${endpoint}`, {
@@ -130,7 +130,7 @@ export const klingProProvider: GenerationProvider = {
   async generate(params) {
     const apiKey = getApiKey();
     const prompt = params.enhancedPrompt || params.prompt;
-    const endpoint = params.imageInput
+    const endpoint = params.imageInput?.length
       ? "fal-ai/kling-video/v2.1/pro/image-to-video"
       : "fal-ai/kling-video/v2.1/pro/text-to-video";
     const body: Record<string, unknown> = {
@@ -138,7 +138,7 @@ export const klingProProvider: GenerationProvider = {
       duration: String(params.duration ?? 5),
       aspect_ratio: params.aspectRatio ?? "16:9",
     };
-    if (params.imageInput) body.image_url = params.imageInput;
+    if (params.imageInput?.length) body.image_url = params.imageInput[0];
     if (params.negativePrompt) body.negative_prompt = params.negativePrompt;
     if (params.cfgScale != null) body.cfg_scale = params.cfgScale;
 

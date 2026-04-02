@@ -1,171 +1,148 @@
 import type { GenerationProvider, GenerationParams, GenerationResult, ModelId } from "@/types";
 
-const BFL_API_BASE = "https://api.bfl.ai/v1";
-const POLL_INTERVAL_MS = 2000;
-const MAX_POLL_DURATION_MS = 60000;
+const FAL_SYNC_BASE = "https://fal.run";
 
-const ASPECT_RATIO_DIMENSIONS: Record<string, { width: number; height: number }> = {
-  "1:1": { width: 1024, height: 1024 },
-  "16:9": { width: 1376, height: 768 },
-  "9:16": { width: 768, height: 1376 },
-  "4:3": { width: 1184, height: 880 },
-  "3:4": { width: 880, height: 1184 },
+const ASPECT_TO_IMAGE_SIZE: Record<string, string> = {
+  "1:1": "square_hd",
+  "16:9": "landscape_16_9",
+  "9:16": "portrait_16_9",
+  "4:3": "landscape_4_3",
+  "3:4": "portrait_4_3",
 };
 
-const API_ENDPOINTS: Record<string, string> = {
-  "flux-1.1-pro": "flux-pro-1.1",
-  "flux-dev": "flux-dev",
-  "flux-kontext-pro": "flux-kontext-pro",
-  "flux-2-klein": "flux-2-klein-9b",
-};
+/**
+ * Resolve the correct fal.ai endpoint based on model, LoRAs, and image input.
+ *
+ * Each model has a base t2i endpoint but may need a different endpoint
+ * when LoRAs or reference images are involved.
+ */
+function resolveEndpoint(modelId: ModelId, params: GenerationParams): string {
+  const hasLoras = params.loras && params.loras.length > 0;
+  const hasImage = params.imageInput && params.imageInput.length > 0;
+
+  switch (modelId) {
+    case "flux-2-klein":
+      // Klein uses the edit/lora endpoint when images or LoRAs are present
+      if (hasImage || hasLoras) return "fal-ai/flux-2/klein/9b/edit/lora";
+      return "fal-ai/flux-2-klein/9b";
+
+    case "flux-kontext-pro":
+      if (hasLoras) return "fal-ai/flux-kontext-lora";
+      return "fal-ai/flux-pro/kontext/text-to-image";
+
+    case "flux-dev":
+      if (hasImage && hasLoras) return "fal-ai/flux-lora/image-to-image";
+      if (hasImage) return "fal-ai/flux-lora/image-to-image";
+      if (hasLoras) return "fal-ai/flux-lora";
+      return "fal-ai/flux/dev";
+
+    case "flux-1.1-pro":
+    default:
+      // Pro doesn't have native LoRA/i2i — fall back to Dev LoRA endpoints
+      if (hasImage && hasLoras) return "fal-ai/flux-lora/image-to-image";
+      if (hasImage) return "fal-ai/flux-lora/image-to-image";
+      if (hasLoras) return "fal-ai/flux-lora";
+      return "fal-ai/flux-pro/v1.1";
+  }
+}
 
 function getApiKey(): string {
-  const key = process.env.BFL_API_KEY;
-  if (!key) {
-    throw new Error("BFL_API_KEY environment variable is not set");
-  }
+  const key = process.env.FAL_KEY;
+  if (!key) throw new Error("FAL_KEY is not set");
   return key;
 }
 
-function getDimensions(aspectRatio?: string): { width: number; height: number } {
-  if (!aspectRatio || !ASPECT_RATIO_DIMENSIONS[aspectRatio]) {
-    return ASPECT_RATIO_DIMENSIONS["1:1"];
-  }
-  return ASPECT_RATIO_DIMENSIONS[aspectRatio];
-}
-
-async function submitJob(
-  endpoint: string,
-  prompt: string,
-  width: number,
-  height: number,
-  apiKey: string,
-  params: GenerationParams
-): Promise<{ id: string; pollingUrl?: string }> {
-  const body: Record<string, unknown> = { prompt, width, height, safety_tolerance: 2 };
-
-  if (params.seed != null) {
-    body.seed = params.seed;
-  }
-  if (params.outputFormat) {
-    body.output_format = params.outputFormat;
-  }
-  if (params.promptEnhance != null) {
-    body.prompt_upsampling = params.promptEnhance;
-  }
-
-  // flux-dev specific parameters
-  if (endpoint === "flux-dev") {
-    if (params.steps != null) {
-      body.steps = params.steps;
-    }
-    if (params.guidance != null) {
-      body.guidance = params.guidance;
-    }
-  }
-
-  const response = await fetch(`${BFL_API_BASE}/${endpoint}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-key": apiKey,
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`BFL API submission failed (${response.status}): ${body}`);
-  }
-
-  const data = (await response.json()) as { id: string; polling_url?: string };
-  return { id: data.id, pollingUrl: data.polling_url };
-}
-
-async function pollForResult(
-  jobId: string,
-  apiKey: string,
-  pollingUrl?: string
-): Promise<{ status: string; sample?: string }> {
-  const url = pollingUrl ?? `${BFL_API_BASE}/get_result?id=${jobId}`;
-  const response = await fetch(url, {
-    method: "GET",
-    headers: { "x-key": apiKey },
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`BFL API poll failed (${response.status}): ${body}`);
-  }
-
-  const data = (await response.json()) as {
-    status: "Pending" | "Ready" | "Error";
-    result?: { sample: string };
-  };
-
-  return {
-    status: data.status,
-    sample: data.result?.sample,
-  };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function createFluxGenerate(variantId: ModelId) {
-  const endpoint = API_ENDPOINTS[variantId] ?? "flux-pro-1.1";
-
+function createFluxGenerate(modelId: ModelId) {
   return async function generate(params: GenerationParams): Promise<GenerationResult> {
     const startTime = Date.now();
 
     try {
       const apiKey = getApiKey();
-      const { width, height } = getDimensions(params.aspectRatio);
       const prompt = params.enhancedPrompt || params.prompt;
+      const endpoint = resolveEndpoint(modelId, params);
+      const isKleinEdit = endpoint.includes("klein") && endpoint.includes("edit");
+      const isKontext = endpoint.includes("kontext");
 
-      const { id: jobId, pollingUrl } = await submitJob(endpoint, prompt, width, height, apiKey, params);
+      const body: Record<string, unknown> = {
+        prompt,
+        output_format: params.outputFormat ?? "png",
+        enable_safety_checker: !params.nsfwEnabled,
+      };
 
-      const deadline = Date.now() + MAX_POLL_DURATION_MS;
+      // Kontext uses aspect_ratio string; others use image_size enum
+      if (isKontext) {
+        body.aspect_ratio = params.aspectRatio ?? "1:1";
+      } else {
+        body.image_size = ASPECT_TO_IMAGE_SIZE[params.aspectRatio ?? "1:1"] ?? "square_hd";
+      }
 
-      while (Date.now() < deadline) {
-        await sleep(POLL_INTERVAL_MS);
+      if (params.seed != null) body.seed = params.seed;
 
-        const pollResult = await pollForResult(jobId, apiKey, pollingUrl);
+      // Dev/LoRA-specific params
+      if (params.guidance != null) body.guidance_scale = params.guidance;
+      if (params.steps != null) body.num_inference_steps = params.steps;
+      if (params.promptEnhance != null) body.enhance_prompt = params.promptEnhance;
 
-        if (pollResult.status === "Ready" && pollResult.sample) {
-          const imageResponse = await fetch(pollResult.sample);
-          if (!imageResponse.ok) {
-            throw new Error(
-              `Failed to download generated image (${imageResponse.status})`
-            );
-          }
+      // LoRAs
+      if (params.loras && params.loras.length > 0) {
+        const maxLoras = isKleinEdit ? 3 : 5;
+        body.loras = params.loras.slice(0, maxLoras).map((l) => ({
+          path: l.path,
+          scale: l.scale,
+        }));
+      }
 
-          const arrayBuffer = await imageResponse.arrayBuffer();
-          const imageBuffer = Buffer.from(arrayBuffer);
-
-          return {
-            status: "completed",
-            imageUrl: pollResult.sample,
-            imageBuffer,
-            width,
-            height,
-            durationMs: Date.now() - startTime,
-          };
-        }
-
-        if (pollResult.status === "Error") {
-          return {
-            status: "failed",
-            error: "BFL API returned an error during generation",
-            durationMs: Date.now() - startTime,
-          };
+      // Reference images
+      if (params.imageInput && params.imageInput.length > 0) {
+        if (isKleinEdit) {
+          // Klein edit accepts multiple images
+          body.image_urls = params.imageInput;
+        } else {
+          // Other i2i endpoints accept a single image
+          body.image_url = params.imageInput[0];
+          body.strength = 0.85;
         }
       }
 
+      const response = await fetch(`${FAL_SYNC_BASE}/${endpoint}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Key ${apiKey}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`fal.ai Flux failed (${response.status}): ${text}`);
+      }
+
+      const data = (await response.json()) as {
+        images: Array<{ url: string; width: number; height: number }>;
+        seed: number;
+        has_nsfw_concepts: boolean[];
+      };
+
+      const img = data.images?.[0];
+      if (!img) {
+        throw new Error("No image returned from fal.ai");
+      }
+
+      const imageResponse = await fetch(img.url);
+      if (!imageResponse.ok) {
+        throw new Error(`Failed to download generated image (${imageResponse.status})`);
+      }
+
+      const arrayBuffer = await imageResponse.arrayBuffer();
+      const imageBuffer = Buffer.from(arrayBuffer);
+
       return {
-        status: "failed",
-        error: `Generation timed out after ${MAX_POLL_DURATION_MS / 1000} seconds`,
+        status: "completed",
+        imageUrl: img.url,
+        imageBuffer,
+        width: img.width,
+        height: img.height,
         durationMs: Date.now() - startTime,
       };
     } catch (error) {
@@ -178,27 +155,7 @@ function createFluxGenerate(variantId: ModelId) {
   };
 }
 
-async function getStatus(jobId: string): Promise<GenerationResult> {
-  try {
-    const apiKey = getApiKey();
-    const pollResult = await pollForResult(jobId, apiKey);
-
-    if (pollResult.status === "Ready" && pollResult.sample) {
-      return { status: "completed", imageUrl: pollResult.sample };
-    }
-    if (pollResult.status === "Error") {
-      return { status: "failed", error: "BFL API returned an error during generation" };
-    }
-    return { status: "processing" };
-  } catch (error) {
-    return {
-      status: "failed",
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-const capabilities = {
+const baseCapabilities = {
   aspectRatios: ["1:1", "16:9", "9:16", "4:3", "3:4"],
   supportsNegativePrompt: false,
   supportsBatchGeneration: false,
@@ -206,54 +163,56 @@ const capabilities = {
   supportsSeed: true,
   supportsOutputFormat: true,
   supportsLora: true,
-};
-
-const fluxDevCapabilities = {
-  ...capabilities,
-  supportsSteps: true,
-  supportsGuidance: true,
+  supportsImageInput: true,
 };
 
 export const fluxProvider: GenerationProvider = {
   id: "flux-1.1-pro",
   name: "Flux",
-  provider: "bfl",
-  capabilities,
+  provider: "fal",
+  capabilities: {
+    ...baseCapabilities,
+    supportsPromptEnhance: true,
+  },
   mediaType: "image",
   costPerImage: 0.04,
   generate: createFluxGenerate("flux-1.1-pro"),
-  getStatus,
 };
 
 export const fluxDevProvider: GenerationProvider = {
   id: "flux-dev",
   name: "Flux",
-  provider: "bfl",
-  capabilities: fluxDevCapabilities,
+  provider: "fal",
+  capabilities: {
+    ...baseCapabilities,
+    supportsSteps: true,
+    supportsGuidance: true,
+  },
   mediaType: "image",
   costPerImage: 0.025,
   generate: createFluxGenerate("flux-dev"),
-  getStatus,
 };
 
 export const fluxKontextProvider: GenerationProvider = {
   id: "flux-kontext-pro",
   name: "Flux",
-  provider: "bfl",
-  capabilities,
+  provider: "fal",
+  capabilities: {
+    ...baseCapabilities,
+    supportsGuidance: true,
+    supportsPromptEnhance: true,
+  },
   mediaType: "image",
   costPerImage: 0.04,
   generate: createFluxGenerate("flux-kontext-pro"),
-  getStatus,
 };
 
 export const fluxKleinProvider: GenerationProvider = {
   id: "flux-2-klein",
   name: "Flux",
-  provider: "bfl",
-  capabilities,
+  provider: "fal",
+  capabilities: baseCapabilities,
   mediaType: "image",
-  costPerImage: 0.015,
+  costPerImage: 0.011,
   generate: createFluxGenerate("flux-2-klein"),
-  getStatus,
 };

@@ -9,10 +9,15 @@ import { runwayProvider, runwayGen45Provider } from "./runway";
 import { klingProvider, klingProProvider } from "./kling";
 import { hailuoProvider, hailuoFastProvider } from "./hailuo";
 import { lumaProvider, lumaFlashProvider } from "./luma";
+import { wanProvider } from "./wan";
 
 // All registered providers (variant-only entries are hidden from top-level cards but reachable by ID)
 const allProviders: GenerationProvider[] = [
   // Image providers
+  fluxProvider,
+  fluxDevProvider,
+  fluxKontextProvider,
+  fluxKleinProvider,
   imagenProvider,
   imagenFlashProvider,
   imagenFlashLiteProvider,
@@ -20,15 +25,11 @@ const allProviders: GenerationProvider[] = [
   imagenFastProvider,
   grokProvider,
   grokProProvider,
-  fluxProvider,
-  fluxDevProvider,
-  fluxKontextProvider,
-  fluxKleinProvider,
-  ideogramProvider,
   recraftProvider,
   recraft20bProvider,
   recraftV4Provider,
   recraftV4ProProvider,
+  ideogramProvider,
   // Video providers
   veoProvider,
   veo31Provider,
@@ -41,6 +42,7 @@ const allProviders: GenerationProvider[] = [
   hailuoFastProvider,
   lumaProvider,
   lumaFlashProvider,
+  wanProvider,
 ];
 
 // Providers that should NOT get their own card — they appear as variants
@@ -146,7 +148,7 @@ const VARIANT_GROUPS: Partial<Record<ModelId, ModelVariant[]>> = {
       label: "Klein",
       costPerImage: 0.015,
       avgGenerationTime: 2,
-      description: "Budget model. Sub-second inference, great for drafts.",
+      description: "Fast editing with reference images and LoRA support.",
     },
   ],
   "recraft-v3": [
@@ -288,8 +290,6 @@ function hasApiKey(provider: GenerationProvider): boolean {
       return !!process.env.GEMINI_API_KEY;
     case "xai":
       return !!process.env.XAI_API_KEY;
-    case "bfl":
-      return !!process.env.BFL_API_KEY;
     case "ideogram":
       return !!process.env.IDEOGRAM_API_KEY;
     case "recraft":
@@ -365,7 +365,7 @@ function getModelDescription(id: ModelId): string {
     "flux-1.1-pro": "Black Forest Labs' high-quality, fast image generation.",
     "flux-dev": "Cheaper Flux model. Good quality at lower cost for iteration.",
     "flux-kontext-pro": "Image editing with character consistency and text rendering.",
-    "flux-2-klein": "Budget model. Sub-second inference, great for drafts.",
+    "flux-2-klein": "Fast editing with reference images and LoRA support.",
     "ideogram-3": "Best-in-class text rendering in images.",
     "recraft-v3": "Design-focused generation with vector and brand-safe styles.",
     "recraft-20b": "Lighter Recraft model. Nearly half the cost, still solid quality.",
@@ -382,6 +382,7 @@ function getModelDescription(id: ModelId): string {
     "hailuo-2.3-fast": "Faster and cheaper. Good for iteration.",
     "ray-2": "Luma's model with camera controls. Up to 60s extended clips.",
     "ray-flash-2": "3x faster and cheaper. Up to 15s duration.",
+    "wan-2.1": "Open-source Wan 2.1 video via fal.ai. LoRA support.",
   };
   return descriptions[id];
 }
@@ -415,6 +416,7 @@ function getAvgGenTime(id: ModelId): number {
     "hailuo-2.3-fast": 30,
     "ray-2": 60,
     "ray-flash-2": 20,
+    "wan-2.1": 120,
   };
   return times[id];
 }

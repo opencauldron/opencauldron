@@ -37,11 +37,11 @@ async function submitGeneration(
   };
 
   // Image-to-video
-  if (params.imageInput) {
+  if (params.imageInput?.length) {
     body.keyframes = {
       frame0: {
         type: "image",
-        url: params.imageInput,
+        url: params.imageInput[0],
       },
     };
   }
@@ -132,8 +132,8 @@ export const lumaFlashProvider: GenerationProvider = {
       duration: params.duration ? `${params.duration}s` : "5s",
       resolution: params.resolution ?? "720p",
     };
-    if (params.imageInput) {
-      body.keyframes = { frame0: { type: "image", url: params.imageInput } };
+    if (params.imageInput?.length) {
+      body.keyframes = { frame0: { type: "image", url: params.imageInput[0] } };
     }
     if (params.cameraControl && CAMERA_MOTIONS[params.cameraControl]) {
       body.camera_motion = CAMERA_MOTIONS[params.cameraControl];

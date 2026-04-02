@@ -44,6 +44,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useRouter } from "next/navigation";
+import { normalizeImageInputs } from "@/lib/normalize-image-inputs";
 
 const PROVIDER_LABELS: Record<string, string> = {
   google: "Gemini",
@@ -307,7 +308,7 @@ export function GalleryClient() {
           enhancedPrompt: brewIncludePrompt ? brewAsset.enhancedPrompt : undefined,
           parameters: brewAsset.parameters,
           previewUrl: brewAsset.thumbnailUrl || brewAsset.url,
-          imageInput: (brewAsset.parameters as Record<string, unknown> | null)?.imageInput as string | undefined,
+          imageInput: normalizeImageInputs((brewAsset.parameters as Record<string, unknown> | null)?.imageInput) || undefined,
         }),
       });
       if (!res.ok) throw new Error();
@@ -580,23 +581,28 @@ export function GalleryClient() {
                   ) : null;
                 })()}
 
-                {typeof selectedAsset.parameters?.imageInput === "string" && (
+                {normalizeImageInputs(selectedAsset.parameters?.imageInput).length > 0 && (
                   <div>
                     <h4 className="text-sm font-medium text-muted-foreground mb-1">
-                      Reference Image
+                      Reference {normalizeImageInputs(selectedAsset.parameters?.imageInput).length > 1 ? "Images" : "Image"}
                     </h4>
-                    <a
-                      href={selectedAsset.parameters.imageInput}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={selectedAsset.parameters.imageInput}
-                        alt="Reference"
-                        className="h-20 w-20 rounded-md object-cover ring-1 ring-border/50 hover:ring-primary transition-all cursor-pointer"
-                      />
-                    </a>
+                    <div className="flex flex-wrap gap-2">
+                      {normalizeImageInputs(selectedAsset.parameters?.imageInput).map((url, i) => (
+                        <a
+                          key={i}
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={url}
+                            alt={`Reference ${i + 1}`}
+                            className="h-20 w-20 rounded-md object-cover ring-1 ring-border/50 hover:ring-primary transition-all cursor-pointer"
+                          />
+                        </a>
+                      ))}
+                    </div>
                   </div>
                 )}
 

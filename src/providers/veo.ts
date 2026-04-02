@@ -42,8 +42,8 @@ async function submitGeneration(
   };
 
   // Image-to-video
-  if (params.imageInput) {
-    body.instances = [{ prompt, image: { imageUri: params.imageInput } }];
+  if (params.imageInput?.length) {
+    body.instances = [{ prompt, image: { imageUri: params.imageInput[0] } }];
   }
 
   const url = `${GEMINI_API_BASE}/models/${modelApiName}:predictLongRunning?key=${apiKey}`;

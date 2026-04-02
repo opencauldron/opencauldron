@@ -13,7 +13,7 @@ const createBrewSchema = z.object({
   enhancedPrompt: z.string().optional(),
   parameters: z.record(z.string(), z.unknown()).optional(),
   previewUrl: z.string().url().optional(),
-  imageInput: z.string().url().optional(),
+  imageInput: z.array(z.string().url()).max(4).optional(),
   brandId: z.string().uuid().optional(),
 });
 
