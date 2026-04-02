@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -762,6 +763,25 @@ export function GenerateClient({
     setBrewsPopoverOpen(false);
     toast.success(`Loaded brew: ${brew.name}`);
   }
+
+  // Auto-load brew from ?brew= query param
+  const searchParams = useSearchParams();
+  const brewAutoLoaded = useRef(false);
+  useEffect(() => {
+    const brewId = searchParams.get("brew");
+    if (!brewId || brewAutoLoaded.current) return;
+    brewAutoLoaded.current = true;
+
+    fetch("/api/brews")
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data: { brews: Brew[] }) => {
+        const brew = data.brews.find((b) => b.id === brewId);
+        if (brew) {
+          handleLoadBrew(brew);
+        }
+      })
+      .catch(() => {});
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch brews for popover (lazy — only when opened)
   function handleBrewsPopoverOpen(open: boolean) {
