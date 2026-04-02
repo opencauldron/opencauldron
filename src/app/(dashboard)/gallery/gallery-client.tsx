@@ -311,7 +311,11 @@ export function GalleryClient() {
           imageInput: normalizeImageInputs((brewAsset.parameters as Record<string, unknown> | null)?.imageInput) || undefined,
         }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("Save brew error:", res.status, text);
+        throw new Error("Failed to save");
+      }
       toast.success("Brew saved!");
       setBrewAsset(null);
       setBrewName("");
