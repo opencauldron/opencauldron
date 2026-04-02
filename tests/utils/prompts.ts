@@ -119,4 +119,12 @@ export const TEST_PROMPTS: Record<string, TestPromptConfig> = {
     style: "realistic_image",
     timeoutMs: 45_000,
   },
+
+  // ── Wan (fal.ai) ─────────────────────────────────────────
+  "wan-2.1": {
+    prompt:
+      "A glowing cauldron in the center of an ancient stone chamber slowly comes to life. Purple and violet magical energy spirals upward from the bubbling liquid, casting dancing shadows on the walls. Tiny golden sparks drift through the air like fireflies. The camera slowly orbits around the cauldron as the light intensifies. Cinematic, atmospheric, fantasy mood.",
+    aspectRatio: "16:9",
+    timeoutMs: 180_000,
+  },
 };

@@ -39,6 +39,7 @@ interface LoraBrowserProps {
   onTriggerWordsChange: (words: string[]) => void;
   nsfwEnabled: boolean;
   onNsfwChange: (enabled: boolean) => void;
+  baseModel?: string;
 }
 
 interface FavoriteLora {
@@ -65,6 +66,7 @@ export function LoraBrowser({
   onTriggerWordsChange,
   nsfwEnabled,
   onNsfwChange,
+  baseModel,
 }: LoraBrowserProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"browse" | "favorites">("browse");
@@ -114,6 +116,7 @@ export function LoraBrowser({
       if (query) params.set("query", query);
       params.set("nsfw", String(nsfw));
       if (nextCursor) params.set("cursor", nextCursor);
+      if (baseModel) params.set("baseModel", baseModel);
 
       const res = await fetch(`/api/civitai/search?${params.toString()}`);
       if (!res.ok) throw new Error("Search failed");
@@ -122,7 +125,7 @@ export function LoraBrowser({
         metadata?: { nextCursor?: string };
       }>;
     },
-    []
+    [baseModel]
   );
 
   useEffect(() => {
