@@ -24,9 +24,17 @@ import {
   Layers,
   Wand2,
   Loader2,
+  Share2,
+  Globe,
+  Link,
+  Lock,
+  Copy,
+  Check,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { Brew } from "@/types";
+import type { Brew, MyBrew } from "@/types";
+
+type BrewVisibility = "private" | "unlisted" | "public";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -34,18 +42,24 @@ import type { Brew } from "@/types";
 
 export function BrewsClient() {
   const router = useRouter();
-  const [brews, setBrews] = useState<Brew[]>([]);
+  const [brews, setBrews] = useState<MyBrew[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Edit dialog
-  const [editBrew, setEditBrew] = useState<Brew | null>(null);
+  const [editBrew, setEditBrew] = useState<MyBrew | null>(null);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   // Delete dialog
-  const [deleteBrew, setDeleteBrew] = useState<Brew | null>(null);
+  const [deleteBrew, setDeleteBrew] = useState<MyBrew | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Publish dialog
+  const [publishBrew, setPublishBrew] = useState<MyBrew | null>(null);
+  const [publishVisibility, setPublishVisibility] = useState<BrewVisibility>("private");
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // -----------------------------------------------------------------------
   // Fetch brews
@@ -54,7 +68,7 @@ export function BrewsClient() {
   useEffect(() => {
     fetch("/api/brews")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((data: { brews: Brew[] }) => {
+      .then((data: { brews: MyBrew[] }) => {
         setBrews(data.brews ?? []);
       })
       .catch(() => {
@@ -67,7 +81,7 @@ export function BrewsClient() {
   // Edit
   // -----------------------------------------------------------------------
 
-  const openEdit = useCallback((brew: Brew) => {
+  const openEdit = useCallback((brew: MyBrew) => {
     setEditBrew(brew);
     setEditName(brew.name);
     setEditDescription(brew.description ?? "");
@@ -86,7 +100,7 @@ export function BrewsClient() {
         }),
       });
       if (!res.ok) throw new Error();
-      const data = (await res.json()) as { brew: Brew };
+      const data = (await res.json()) as { brew: MyBrew };
       setBrews((prev) => prev.map((b) => (b.id === data.brew.id ? data.brew : b)));
       setEditBrew(null);
       toast.success("Brew updated");
@@ -118,15 +132,94 @@ export function BrewsClient() {
   }, [deleteBrew]);
 
   // -----------------------------------------------------------------------
+  // Publish / Share
+  // -----------------------------------------------------------------------
+
+  const openPublish = useCallback((brew: MyBrew) => {
+    setPublishBrew(brew);
+    setPublishVisibility(brew.visibility);
+    setCopied(false);
+  }, []);
+
+  const handlePublish = useCallback(async () => {
+    if (!publishBrew) return;
+    setIsPublishing(true);
+    try {
+      const res = await fetch(`/api/brews/${publishBrew.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visibility: publishVisibility }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        toast.error(data.error ?? "Failed to update visibility");
+        return;
+      }
+      const data = (await res.json()) as { brew: MyBrew };
+      setBrews((prev) => prev.map((b) => (b.id === data.brew.id ? data.brew : b)));
+      setPublishBrew(data.brew);
+      toast.success(
+        publishVisibility === "private"
+          ? "Brew set to private"
+          : publishVisibility === "unlisted"
+            ? "Brew is now shareable via link"
+            : "Brew published to Explore"
+      );
+    } catch {
+      toast.error("Failed to update visibility");
+    } finally {
+      setIsPublishing(false);
+    }
+  }, [publishBrew, publishVisibility]);
+
+  const shareUrl = publishBrew?.slug
+    ? `${typeof window !== "undefined" ? window.location.origin : ""}/brew/${publishBrew.slug}`
+    : null;
+
+  const handleCopy = useCallback(() => {
+    if (!shareUrl) return;
+    navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [shareUrl]);
+
+  // -----------------------------------------------------------------------
   // Use brew — navigate to generate page with brew ID in query
   // -----------------------------------------------------------------------
 
   const handleUse = useCallback(
-    (brew: Brew) => {
+    (brew: MyBrew) => {
       router.push(`/generate?brew=${brew.id}`);
     },
     [router]
   );
+
+  // -----------------------------------------------------------------------
+  // Helpers
+  // -----------------------------------------------------------------------
+
+  const VisibilityIcon = ({ visibility }: { visibility: BrewVisibility }) => {
+    switch (visibility) {
+      case "public":
+        return <Globe className="h-3 w-3 text-green-500" />;
+      case "unlisted":
+        return <Link className="h-3 w-3 text-yellow-500" />;
+      default:
+        return <Lock className="h-3 w-3 text-muted-foreground/40" />;
+    }
+  };
+
+  const isVideoModel = (model: string) => {
+    const videoModels = [
+      "veo-3", "veo-3.1", "veo-3-fast",
+      "runway-gen4-turbo", "runway-gen4.5",
+      "kling-2.1", "kling-2.1-pro",
+      "hailuo-2.3", "hailuo-2.3-fast",
+      "ray-2", "ray-flash-2",
+      "wan-2.1",
+    ];
+    return videoModels.includes(model);
+  };
 
   // -----------------------------------------------------------------------
   // Render
@@ -152,7 +245,7 @@ export function BrewsClient() {
         <FlaskConical className="h-10 w-10 mx-auto text-muted-foreground/30" />
         <p className="text-sm text-muted-foreground">No brews yet</p>
         <p className="text-xs text-muted-foreground/60">
-          Generate an image, then click "Save as Brew" to save the recipe for reuse.
+          Generate an image, then click &ldquo;Save as Brew&rdquo; to save the recipe for reuse.
         </p>
         <Button variant="outline" size="sm" onClick={() => router.push("/generate")}>
           <Wand2 className="h-3.5 w-3.5 mr-1.5" />
@@ -193,9 +286,12 @@ export function BrewsClient() {
               {/* Info */}
               <div className="p-3.5 space-y-2">
                 <div className="flex items-start justify-between gap-2">
-                  <h3 className="text-sm font-medium leading-tight line-clamp-1">
-                    {brew.name}
-                  </h3>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <VisibilityIcon visibility={brew.visibility} />
+                    <h3 className="text-sm font-medium leading-tight line-clamp-1">
+                      {brew.name}
+                    </h3>
+                  </div>
                   <Badge variant="outline" className="text-[9px] shrink-0">
                     {brew.model}
                   </Badge>
@@ -209,7 +305,14 @@ export function BrewsClient() {
 
                 {brew.prompt ? (
                   <p className="text-xs text-muted-foreground/60 line-clamp-1 italic">
-                    "{brew.prompt}"
+                    &ldquo;{brew.prompt}&rdquo;
+                  </p>
+                ) : null}
+
+                {/* Attribution */}
+                {brew.originalAuthorName ? (
+                  <p className="text-[10px] text-muted-foreground/50 italic">
+                    Based on a brew by {brew.originalAuthorName}
                   </p>
                 ) : null}
 
@@ -237,6 +340,15 @@ export function BrewsClient() {
                   >
                     <ArrowRight className="h-3 w-3" />
                     Use
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 p-0 cursor-pointer"
+                    onClick={() => openPublish(brew)}
+                    title="Share / Publish"
+                  >
+                    <Share2 className="h-3 w-3" />
                   </Button>
                   <Button
                     variant="ghost"
@@ -308,7 +420,7 @@ export function BrewsClient() {
             <DialogHeader>
               <DialogTitle>Delete Brew</DialogTitle>
               <DialogDescription>
-                Are you sure you want to delete "{deleteBrew.name}"? This cannot be undone.
+                Are you sure you want to delete &ldquo;{deleteBrew.name}&rdquo;? This cannot be undone.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
@@ -316,6 +428,112 @@ export function BrewsClient() {
               <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
                 {isDeleting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
                 Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        ) : null}
+      </Dialog>
+
+      {/* Publish / Share Dialog */}
+      <Dialog open={!!publishBrew} onOpenChange={(open) => { if (!open) setPublishBrew(null); }}>
+        {publishBrew ? (
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Share Brew</DialogTitle>
+              <DialogDescription>
+                Control who can see and use this brew.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              {/* Video brew warning */}
+              {isVideoModel(publishBrew.model) ? (
+                <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/20 p-3">
+                  <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                    Video brews cannot be published at this time.
+                  </p>
+                </div>
+              ) : !publishBrew.previewUrl ? (
+                <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/20 p-3">
+                  <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                    A preview image is required to publish. Use this brew to generate an image first.
+                  </p>
+                </div>
+              ) : null}
+
+              {/* Visibility options */}
+              <div className="space-y-2">
+                <Label>Visibility</Label>
+                <div className="grid gap-2">
+                  {([
+                    { value: "private", icon: Lock, label: "Private", desc: "Only you can see this brew" },
+                    { value: "unlisted", icon: Link, label: "Unlisted", desc: "Anyone with the link can view" },
+                    { value: "public", icon: Globe, label: "Public", desc: "Listed on the Explore tab for everyone" },
+                  ] as const).map((opt) => (
+                    <label
+                      key={opt.value}
+                      className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                        publishVisibility === opt.value
+                          ? "border-primary bg-primary/5"
+                          : "border-border/40 hover:border-border"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="visibility"
+                        value={opt.value}
+                        checked={publishVisibility === opt.value}
+                        onChange={() => setPublishVisibility(opt.value)}
+                        className="sr-only"
+                      />
+                      <opt.icon className={`h-4 w-4 mt-0.5 shrink-0 ${
+                        publishVisibility === opt.value ? "text-primary" : "text-muted-foreground"
+                      }`} />
+                      <div>
+                        <p className="text-sm font-medium">{opt.label}</p>
+                        <p className="text-xs text-muted-foreground">{opt.desc}</p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Share link */}
+              {shareUrl && publishBrew.visibility !== "private" ? (
+                <div className="space-y-1.5">
+                  <Label>Share Link</Label>
+                  <div className="flex gap-2">
+                    <Input value={shareUrl} readOnly className="text-xs" />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleCopy}
+                      className="shrink-0"
+                    >
+                      {copied ? (
+                        <Check className="h-3.5 w-3.5" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setPublishBrew(null)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handlePublish}
+                disabled={
+                  isPublishing ||
+                  publishVisibility === publishBrew.visibility ||
+                  isVideoModel(publishBrew.model) ||
+                  (!publishBrew.previewUrl && publishVisibility !== "private")
+                }
+              >
+                {isPublishing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
+                {publishVisibility === "private" ? "Set Private" : "Publish"}
               </Button>
             </DialogFooter>
           </DialogContent>

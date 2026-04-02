@@ -323,6 +323,14 @@ export function getAvailableProviders(mediaType?: MediaType): GenerationProvider
 }
 
 /**
+ * Check if a model ID corresponds to a video model.
+ */
+export function isVideoModel(modelId: string): boolean {
+  const provider = allProviders.find((p) => p.id === modelId);
+  return provider?.mediaType === "video";
+}
+
+/**
  * Get a specific provider by model ID.
  */
 export function getProvider(modelId: ModelId): GenerationProvider | undefined {

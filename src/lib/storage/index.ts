@@ -46,6 +46,32 @@ export async function deleteFile(key: string): Promise<void> {
 }
 
 /**
+ * Extract the R2 key from a stored URL (signed or public) and return a fresh URL.
+ * Returns null if the URL format is unrecognized.
+ */
+export async function refreshUrl(storedUrl: string): Promise<string | null> {
+  try {
+    const url = new URL(storedUrl);
+    // Path is /{bucket}/{key} for signed URLs or /{key} for public URLs
+    const pathParts = url.pathname.split("/").filter(Boolean);
+    // For signed R2 URLs the first path segment is the bucket name
+    const bucket = process.env.R2_BUCKET_NAME;
+    let key: string;
+    if (bucket && pathParts[0] === bucket) {
+      key = pathParts.slice(1).join("/");
+    } else {
+      // Public URL or local — key is the full path
+      key = pathParts.join("/");
+    }
+    if (!key) return null;
+    return getAssetUrl(key);
+  } catch (err) {
+    console.error("[refreshUrl] Failed to refresh URL:", err);
+    return null;
+  }
+}
+
+/**
  * Generate a thumbnail and upload it.
  * Returns the thumbnail storage key.
  */

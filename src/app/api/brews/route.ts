@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { brews } from "@/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
+import { brews, users } from "@/lib/db/schema";
+import { eq, desc, inArray } from "drizzle-orm";
 import { z } from "zod";
+import { refreshUrl } from "@/lib/storage";
 
 const createBrewSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -31,7 +32,31 @@ export async function GET() {
     .where(eq(brews.userId, userId))
     .orderBy(desc(brews.updatedAt));
 
-  return NextResponse.json({ brews: result });
+  // Resolve original author names for cloned brews
+  const originalUserIds = [
+    ...new Set(result.filter((b) => b.originalUserId).map((b) => b.originalUserId!)),
+  ];
+
+  let authorMap: Record<string, string> = {};
+  if (originalUserIds.length > 0) {
+    const authors = await db
+      .select({ id: users.id, name: users.name })
+      .from(users)
+      .where(inArray(users.id, originalUserIds));
+    authorMap = Object.fromEntries(
+      authors.map((a) => [a.id, a.name ?? "Unknown"])
+    );
+  }
+
+  const brewsWithAttribution = await Promise.all(
+    result.map(async (b) => ({
+      ...b,
+      previewUrl: b.previewUrl ? (await refreshUrl(b.previewUrl)) ?? b.previewUrl : null,
+      originalAuthorName: b.originalUserId ? authorMap[b.originalUserId] ?? null : null,
+    }))
+  );
+
+  return NextResponse.json({ brews: brewsWithAttribution });
 }
 
 export async function POST(req: NextRequest) {

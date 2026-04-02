@@ -254,8 +254,10 @@ export const loraFavorites = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    civitaiModelId: integer("civitai_model_id").notNull(),
-    civitaiVersionId: integer("civitai_version_id").notNull(),
+    source: text("source").notNull().default("civitai"),
+    civitaiModelId: integer("civitai_model_id"),
+    civitaiVersionId: integer("civitai_version_id"),
+    hfRepoId: text("hf_repo_id"),
     name: text("name").notNull(),
     downloadUrl: text("download_url").notNull(),
     triggerWords: jsonb("trigger_words").$type<string[]>().default([]),
@@ -265,6 +267,7 @@ export const loraFavorites = pgTable(
   (table) => [
     index("lora_favorites_user_id_idx").on(table.userId),
     index("lora_favorites_unique_idx").on(table.userId, table.civitaiVersionId),
+    index("lora_favorites_user_source_idx").on(table.userId, table.source),
   ]
 );
 
@@ -288,12 +291,19 @@ export const brews = pgTable(
     previewUrl: text("preview_url"),
     imageInput: jsonb("image_input").$type<string[]>(),
     brandId: uuid("brand_id").references(() => brands.id, { onDelete: "set null" }),
+    visibility: text("visibility", { enum: ["private", "unlisted", "public"] })
+      .notNull()
+      .default("private"),
+    slug: text("slug").unique(),
+    originalBrewId: uuid("original_brew_id"), // FK to brews.id enforced at DB level
+    originalUserId: uuid("original_user_id").references(() => users.id, { onDelete: "set null" }),
     usageCount: integer("usage_count").notNull().default(0),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (table) => [
     index("brews_user_id_idx").on(table.userId),
+    index("brews_visibility_created_at_idx").on(table.visibility, table.createdAt),
   ]
 );
 

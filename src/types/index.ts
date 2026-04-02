@@ -306,10 +306,25 @@ export interface CivitaiModelVersion {
   }>;
 }
 
+export type LoraSource = "civitai" | "huggingface";
+
+export interface HuggingFaceModel {
+  id: string;              // e.g. "author/model-name"
+  author: string;
+  downloads: number;
+  likes: number;
+  tags: string[];
+  createdAt: string;
+  lastModified: string;
+  pipelineTag?: string;
+}
+
 export interface SelectedLora {
   id?: string;
-  civitaiModelId: number;
-  civitaiVersionId: number;
+  source: LoraSource;
+  civitaiModelId?: number;
+  civitaiVersionId?: number;
+  hfRepoId?: string;
   name: string;
   downloadUrl: string;
   scale: number;
@@ -347,7 +362,20 @@ export interface Brew {
   previewUrl: string | null;
   imageInput: string[] | null;
   brandId: string | null;
+  visibility: "private" | "unlisted" | "public";
+  slug: string | null;
+  originalBrewId: string | null;
+  originalUserId: string | null;
   usageCount: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface PublicBrew extends Brew {
+  authorName: string | null;
+  authorImage: string | null;
+}
+
+export interface MyBrew extends Brew {
+  originalAuthorName: string | null;
 }
