@@ -673,8 +673,10 @@ export function GenerateClient({
       };
       if (selectedLoras.length > 0) {
         params.loras = selectedLoras.map((l) => ({
+          source: l.source,
           civitaiModelId: l.civitaiModelId,
           civitaiVersionId: l.civitaiVersionId,
+          hfRepoId: l.hfRepoId,
           name: l.name,
           downloadUrl: l.downloadUrl,
           scale: l.scale,
@@ -741,10 +743,10 @@ export function GenerateClient({
     if (params.audioEnabled !== undefined) setAudioEnabled(params.audioEnabled as boolean);
     if (params.nsfwEnabled) setNsfwEnabled(true);
 
-    // Set LoRAs
+    // Set LoRAs (default source to "civitai" for backward compat with old brews)
     const savedLoras = params.loras as SelectedLora[] | undefined;
     if (savedLoras && savedLoras.length > 0) {
-      setSelectedLoras(savedLoras);
+      setSelectedLoras(savedLoras.map((l) => ({ ...l, source: l.source ?? "civitai" })));
     } else {
       setSelectedLoras([]);
     }

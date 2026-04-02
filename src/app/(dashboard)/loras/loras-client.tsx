@@ -35,7 +35,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
-import type { CivitaiModel } from "@/types";
+import type { CivitaiModel, LoraSource } from "@/types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,13 +43,28 @@ import type { CivitaiModel } from "@/types";
 
 interface FavoriteLora {
   id: string;
-  civitaiModelId: number;
-  civitaiVersionId: number;
+  source?: LoraSource;
+  civitaiModelId?: number;
+  civitaiVersionId?: number;
+  hfRepoId?: string;
   name: string;
   downloadUrl: string;
   triggerWords: string[];
   previewImageUrl: string | null;
   createdAt: string;
+}
+
+interface HfSearchResult {
+  id: string;
+  author: string;
+  name: string;
+  downloads: number;
+  likes: number;
+  tags: string[];
+  previewImageUrl: string | null;
+  triggerWords: string[];
+  downloadUrl: string | null;
+  safetensorsFiles: string[];
 }
 
 type SortOption = "Most Downloaded" | "Highest Rated" | "Newest";
@@ -59,14 +74,15 @@ interface BaseModelOption {
   value: string;
   label: string;
   canGenerate: boolean;
+  hfFilter?: string;
 }
 
 const BASE_MODELS: BaseModelOption[] = [
-  { value: "Flux.1 D", label: "Flux", canGenerate: true },
-  { value: "SDXL 1.0", label: "SDXL", canGenerate: false },
+  { value: "Flux.1 D", label: "Flux", canGenerate: true, hfFilter: "base_model:adapter:black-forest-labs/FLUX.1-dev" },
+  { value: "SDXL 1.0", label: "SDXL", canGenerate: false, hfFilter: "base_model:adapter:stabilityai/stable-diffusion-xl-base-1.0" },
   { value: "Pony", label: "Pony", canGenerate: false },
   { value: "Illustrious", label: "Illustrious", canGenerate: false },
-  { value: "SD 1.5", label: "SD 1.5", canGenerate: false },
+  { value: "SD 1.5", label: "SD 1.5", canGenerate: false, hfFilter: "base_model:adapter:runwayml/stable-diffusion-v1-5" },
   { value: "Hunyuan Video", label: "Hunyuan Video", canGenerate: false },
   { value: "Wan Video", label: "Wan Video", canGenerate: false },
 ];
@@ -78,6 +94,9 @@ const SEARCH_DEBOUNCE_MS = 300;
 // ---------------------------------------------------------------------------
 
 export function LorasClient() {
+  // Source state
+  const [source, setSource] = useState<LoraSource>("civitai");
+
   // Search / filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -86,10 +105,32 @@ export function LorasClient() {
   const [nsfwEnabled, setNsfwEnabled] = useState(false);
   const [viewFilter, setViewFilter] = useState<ViewFilter>("all");
 
+  // Filter base models based on source
+  const availableBaseModels = useMemo(() => {
+    if (source === "huggingface") {
+      return BASE_MODELS.filter((b) => b.hfFilter);
+    }
+    return BASE_MODELS;
+  }, [source]);
+
   const activeBaseModel = BASE_MODELS.find((b) => b.value === baseModel);
 
-  // Results state
+  // When source changes to HF, ensure baseModel has an hfFilter
+  useEffect(() => {
+    if (source === "huggingface") {
+      const current = BASE_MODELS.find((b) => b.value === baseModel);
+      if (!current?.hfFilter) {
+        const first = BASE_MODELS.find((b) => b.hfFilter);
+        if (first) setBaseModel(first.value);
+      }
+    }
+  }, [source, baseModel]);
+
+  // Civitai results state
   const [results, setResults] = useState<CivitaiModel[]>([]);
+  // HF results state
+  const [hfResults, setHfResults] = useState<HfSearchResult[]>([]);
+
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -99,9 +140,11 @@ export function LorasClient() {
   const [favorites, setFavorites] = useState<FavoriteLora[]>([]);
   const [isFavoritesLoaded, setIsFavoritesLoaded] = useState(false);
   const [favoritingIds, setFavoritingIds] = useState<Set<number>>(new Set());
+  const [favoritingHfIds, setFavoritingHfIds] = useState<Set<string>>(new Set());
 
   // Detail sheet
   const [selectedModel, setSelectedModel] = useState<CivitaiModel | null>(null);
+  const [selectedHfModel, setSelectedHfModel] = useState<HfSearchResult | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
 
@@ -137,12 +180,33 @@ export function LorasClient() {
     localStorage.setItem("cauldron-nsfw-loras", String(nsfwEnabled));
   }, [nsfwEnabled]);
 
+  // Reset results when source changes
+  useEffect(() => {
+    setResults([]);
+    setHfResults([]);
+    setCursor(null);
+    setSearchError(null);
+  }, [source]);
+
   // -----------------------------------------------------------------------
   // Fetch search results
   // -----------------------------------------------------------------------
 
   const fetchSearch = useCallback(
     async (query: string, nsfw: boolean, sortBy: string, base: string, nextCursor?: string) => {
+      if (source === "huggingface") {
+        const params = new URLSearchParams();
+        if (query) params.set("query", query);
+        const hfSort = sortBy === "Most Downloaded" ? "downloads" : sortBy === "Highest Rated" ? "likes" : "lastModified";
+        params.set("sort", hfSort);
+        params.set("baseModel", base);
+        if (nextCursor) params.set("cursor", nextCursor);
+
+        const res = await fetch(`/api/huggingface/search?${params.toString()}`);
+        if (!res.ok) throw new Error("Search failed");
+        return res.json();
+      }
+
       const params = new URLSearchParams();
       if (query) params.set("query", query);
       params.set("nsfw", String(nsfw));
@@ -157,7 +221,7 @@ export function LorasClient() {
         metadata?: { nextCursor?: string };
       }>;
     },
-    []
+    [source]
   );
 
   // Initial load: fetch search + favorites in parallel
@@ -174,8 +238,13 @@ export function LorasClient() {
     Promise.all([searchPromise, favPromise])
       .then(([searchData, favData]) => {
         if (cancelled) return;
-        setResults(searchData.items ?? []);
-        setCursor(searchData.metadata?.nextCursor ?? null);
+        if (source === "huggingface") {
+          setHfResults(searchData.items ?? []);
+          setCursor(searchData.nextCursor ?? null);
+        } else {
+          setResults(searchData.items ?? []);
+          setCursor(searchData.metadata?.nextCursor ?? null);
+        }
         if (favData) {
           setFavorites(favData.favorites ?? []);
           setIsFavoritesLoaded(true);
@@ -185,6 +254,7 @@ export function LorasClient() {
         if (cancelled) return;
         setSearchError(err instanceof Error ? err.message : "Search failed");
         setResults([]);
+        setHfResults([]);
       })
       .finally(() => {
         if (!cancelled) setIsSearching(false);
@@ -193,7 +263,7 @@ export function LorasClient() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedQuery, nsfwEnabled, sort, baseModel, fetchSearch, isFavoritesLoaded]);
+  }, [debouncedQuery, nsfwEnabled, sort, baseModel, fetchSearch, isFavoritesLoaded, source]);
 
   // -----------------------------------------------------------------------
   // Load more
@@ -204,21 +274,34 @@ export function LorasClient() {
     setIsLoadingMore(true);
     try {
       const data = await fetchSearch(debouncedQuery, nsfwEnabled, sort, baseModel, cursor);
-      setResults((prev) => [...prev, ...(data.items ?? [])]);
-      setCursor(data.metadata?.nextCursor ?? null);
+      if (source === "huggingface") {
+        setHfResults((prev) => [...prev, ...(data.items ?? [])]);
+        setCursor(data.nextCursor ?? null);
+      } else {
+        setResults((prev) => [...prev, ...(data.items ?? [])]);
+        setCursor(data.metadata?.nextCursor ?? null);
+      }
     } catch {
       // Silent
     } finally {
       setIsLoadingMore(false);
     }
-  }, [cursor, isLoadingMore, fetchSearch, debouncedQuery, nsfwEnabled, sort, baseModel]);
+  }, [cursor, isLoadingMore, fetchSearch, debouncedQuery, nsfwEnabled, sort, baseModel, source]);
 
   // -----------------------------------------------------------------------
   // Favorites
   // -----------------------------------------------------------------------
 
+  const favoriteKeys = useMemo(
+    () => new Set(favorites.map((f) => {
+      const s = f.source ?? "civitai";
+      return s === "civitai" ? `civitai:${f.civitaiVersionId}` : `hf:${f.hfRepoId}`;
+    })),
+    [favorites]
+  );
+
   const favoriteVersionIds = useMemo(
-    () => new Set(favorites.map((f) => f.civitaiVersionId)),
+    () => new Set(favorites.filter((f) => (f.source ?? "civitai") === "civitai").map((f) => f.civitaiVersionId!)),
     [favorites]
   );
 
@@ -227,7 +310,7 @@ export function LorasClient() {
       const version = model.modelVersions?.[0];
       if (!version) return;
 
-      const existing = favorites.find((f) => f.civitaiVersionId === version.id);
+      const existing = favorites.find((f) => (f.source ?? "civitai") === "civitai" && f.civitaiVersionId === version.id);
       setFavoritingIds((prev) => new Set(prev).add(version.id));
 
       try {
@@ -249,6 +332,7 @@ export function LorasClient() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              source: "civitai",
               civitaiModelId: model.id,
               civitaiVersionId: version.id,
               name: model.name,
@@ -280,13 +364,60 @@ export function LorasClient() {
     [favorites]
   );
 
+  const toggleHfFavorite = useCallback(
+    async (model: HfSearchResult) => {
+      const existing = favorites.find((f) => f.source === "huggingface" && f.hfRepoId === model.id);
+      setFavoritingHfIds((prev) => new Set(prev).add(model.id));
+
+      try {
+        if (existing) {
+          const res = await fetch(`/api/lora-favorites?id=${existing.id}`, { method: "DELETE" });
+          if (res.ok) {
+            setFavorites((prev) => prev.filter((f) => f.id !== existing.id));
+            toast.success("Removed from favorites");
+          }
+        } else {
+          if (!model.downloadUrl) {
+            toast.error("No safetensors file found for this LoRA");
+            return;
+          }
+          const res = await fetch("/api/lora-favorites", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              source: "huggingface",
+              hfRepoId: model.id,
+              name: model.name,
+              downloadUrl: model.downloadUrl,
+              triggerWords: model.triggerWords,
+              previewImageUrl: model.previewImageUrl,
+            }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setFavorites((prev) => [data.favorite, ...prev]);
+            toast.success("Added to favorites");
+          }
+        }
+      } catch {
+        toast.error("Failed to update favorite");
+      } finally {
+        setFavoritingHfIds((prev) => {
+          const next = new Set(prev);
+          next.delete(model.id);
+          return next;
+        });
+      }
+    },
+    [favorites]
+  );
+
   // -----------------------------------------------------------------------
   // Display list — all or favorites only
   // -----------------------------------------------------------------------
 
   const displayResults = useMemo(() => {
     if (viewFilter === "favorites") {
-      // Show favorites as pseudo CivitaiModel objects for consistent rendering
       return results.filter((m) => {
         const v = m.modelVersions?.[0];
         return v ? favoriteVersionIds.has(v.id) : false;
@@ -295,12 +426,27 @@ export function LorasClient() {
     return results;
   }, [viewFilter, results, favoriteVersionIds]);
 
+  const displayHfResults = useMemo(() => {
+    if (viewFilter === "favorites") {
+      return hfResults.filter((m) => favoriteKeys.has(`hf:${m.id}`));
+    }
+    return hfResults;
+  }, [viewFilter, hfResults, favoriteKeys]);
+
   // -----------------------------------------------------------------------
   // Open detail
   // -----------------------------------------------------------------------
 
   const openDetail = useCallback((model: CivitaiModel) => {
     setSelectedModel(model);
+    setSelectedHfModel(null);
+    setActiveImageIdx(0);
+    setDetailOpen(true);
+  }, []);
+
+  const openHfDetail = useCallback((model: HfSearchResult) => {
+    setSelectedHfModel(model);
+    setSelectedModel(null);
     setActiveImageIdx(0);
     setDetailOpen(true);
   }, []);
@@ -309,15 +455,38 @@ export function LorasClient() {
   // Render
   // -----------------------------------------------------------------------
 
+  const currentResults = source === "huggingface" ? displayHfResults : displayResults;
+  const hasResults = currentResults.length > 0;
+
   return (
     <div className="space-y-5">
       {/* Top bar */}
       <div className="flex flex-col sm:flex-row gap-3">
+        {/* Source selector */}
+        <div className="flex items-center gap-1 rounded-lg bg-secondary/50 p-0.5">
+          <Button
+            variant={source === "civitai" ? "default" : "ghost"}
+            size="sm"
+            className="h-7 text-xs px-3 cursor-pointer"
+            onClick={() => setSource("civitai")}
+          >
+            Civitai
+          </Button>
+          <Button
+            variant={source === "huggingface" ? "default" : "ghost"}
+            size="sm"
+            className="h-7 text-xs px-3 cursor-pointer"
+            onClick={() => setSource("huggingface")}
+          >
+            HuggingFace
+          </Button>
+        </div>
+
         {/* Search */}
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search LoRAs on Civitai..."
+            placeholder={source === "huggingface" ? "Search LoRAs on HuggingFace..." : "Search LoRAs on Civitai..."}
             value={searchQuery}
             onChange={(e) => handleSearchChange(e.target.value)}
             className="pl-9 bg-secondary/50 border-border/50"
@@ -330,7 +499,7 @@ export function LorasClient() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {BASE_MODELS.map((bm) => (
+            {availableBaseModels.map((bm) => (
               <SelectItem key={bm.value} value={bm.value}>
                 <span className="flex items-center gap-2">
                   {bm.label}
@@ -362,7 +531,7 @@ export function LorasClient() {
               variant={viewFilter === "all" ? "default" : "ghost"}
               size="sm"
               onClick={() => setViewFilter("all")}
-              className="h-8 text-xs"
+              className="h-8 text-xs cursor-pointer"
             >
               All
             </Button>
@@ -370,7 +539,7 @@ export function LorasClient() {
               variant={viewFilter === "favorites" ? "default" : "ghost"}
               size="sm"
               onClick={() => setViewFilter("favorites")}
-              className="h-8 text-xs gap-1"
+              className="h-8 text-xs gap-1 cursor-pointer"
             >
               <Heart className="h-3 w-3" />
               Favorites
@@ -382,16 +551,18 @@ export function LorasClient() {
             </Button>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <Label htmlFor="nsfw-page" className="text-xs text-muted-foreground cursor-pointer">
-              NSFW
-            </Label>
-            <Switch
-              id="nsfw-page"
-              checked={nsfwEnabled}
-              onCheckedChange={setNsfwEnabled}
-            />
-          </div>
+          {source === "civitai" ? (
+            <div className="flex items-center gap-1.5">
+              <Label htmlFor="nsfw-page" className="text-xs text-muted-foreground cursor-pointer">
+                NSFW
+              </Label>
+              <Switch
+                id="nsfw-page"
+                checked={nsfwEnabled}
+                onCheckedChange={setNsfwEnabled}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -411,7 +582,7 @@ export function LorasClient() {
             </div>
           ))}
         </div>
-      ) : displayResults.length === 0 ? (
+      ) : !hasResults ? (
         <div className="text-center py-16 space-y-2">
           {viewFilter === "favorites" ? (
             <>
@@ -433,89 +604,164 @@ export function LorasClient() {
       ) : (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {displayResults.map((model, idx) => {
-              const version = model.modelVersions?.[0];
-              const preview = version?.images?.[0];
-              const isFaved = version ? favoriteVersionIds.has(version.id) : false;
-              const isFaving = version ? favoritingIds.has(version.id) : false;
+            {source === "huggingface"
+              ? displayHfResults.map((model, idx) => {
+                  const isFaved = favoriteKeys.has(`hf:${model.id}`);
+                  const isFaving = favoritingHfIds.has(model.id);
 
-              return (
-                <div
-                  key={`${model.id}-${idx}`}
-                  className="group relative rounded-xl border border-border/40 bg-card overflow-hidden transition-all duration-200 hover:border-border hover:shadow-md cursor-pointer"
-                  onClick={() => openDetail(model)}
-                >
-                  {/* Preview */}
-                  <div className="aspect-[3/4] bg-muted/20 overflow-hidden">
-                    <LoraImage src={preview?.url} type={preview?.type} />
-                  </div>
-
-                  {/* Favorite button */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleFavorite(model);
-                    }}
-                    disabled={isFaving}
-                    className="absolute top-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/40 backdrop-blur-sm text-white transition-all hover:bg-black/60 hover:scale-110 cursor-pointer"
-                  >
-                    <Heart
-                      className={`h-4 w-4 transition-colors ${isFaved ? "fill-red-400 text-red-400" : ""}`}
-                    />
-                  </button>
-
-                  {/* Info */}
-                  <div className="p-3 space-y-1.5">
-                    <h3 className="text-sm font-medium leading-tight line-clamp-2">
-                      {model.name}
-                    </h3>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      {model.creator?.image ? (
-                        <img
-                          src={model.creator.image}
-                          alt=""
-                          className="h-4 w-4 rounded-full"
-                        />
-                      ) : null}
-                      <span className="truncate">{model.creator?.username}</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-[11px] text-muted-foreground/70">
-                      <span className="flex items-center gap-1">
-                        <Download className="h-3 w-3" />
-                        {formatCount(model.stats?.downloadCount ?? 0)}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <ThumbsUp className="h-3 w-3" />
-                        {formatCount(model.stats?.thumbsUpCount ?? 0)}
-                      </span>
-                    </div>
-                    {activeBaseModel?.canGenerate ? (
-                      <Badge variant="secondary" className="text-[9px] w-fit gap-1 font-normal">
-                        <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-                        Ready to generate
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-[9px] w-fit gap-1 font-normal text-muted-foreground">
-                        Browse only
-                      </Badge>
-                    )}
-                    {model.tags?.length ? (
-                      <div className="flex flex-wrap gap-1 pt-0.5">
-                        {model.tags.slice(0, 3).map((tag) => (
-                          <Badge
-                            key={tag}
-                            variant="outline"
-                            className="text-[9px] h-4 px-1.5 font-normal"
-                          >
-                            {tag}
-                          </Badge>
-                        ))}
+                  return (
+                    <div
+                      key={`${model.id}-${idx}`}
+                      className="group relative rounded-xl border border-border/40 bg-card overflow-hidden transition-all duration-200 hover:border-border hover:shadow-md cursor-pointer"
+                      onClick={() => openHfDetail(model)}
+                    >
+                      {/* Preview */}
+                      <div className="aspect-[3/4] bg-muted/20 overflow-hidden">
+                        <LoraImage src={model.previewImageUrl} />
                       </div>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
+
+                      {/* Favorite button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleHfFavorite(model);
+                        }}
+                        disabled={isFaving}
+                        className="absolute top-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/40 backdrop-blur-sm text-white transition-all hover:bg-black/60 hover:scale-110 cursor-pointer"
+                      >
+                        <Heart
+                          className={`h-4 w-4 transition-colors ${isFaved ? "fill-red-400 text-red-400" : ""}`}
+                        />
+                      </button>
+
+                      {/* Info */}
+                      <div className="p-3 space-y-1.5">
+                        <h3 className="text-sm font-medium leading-tight line-clamp-2">
+                          {model.name}
+                        </h3>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span className="truncate">{model.author}</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-[11px] text-muted-foreground/70">
+                          <span className="flex items-center gap-1">
+                            <Download className="h-3 w-3" />
+                            {formatCount(model.downloads)}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <ThumbsUp className="h-3 w-3" />
+                            {formatCount(model.likes)}
+                          </span>
+                        </div>
+                        {activeBaseModel?.canGenerate ? (
+                          <Badge variant="secondary" className="text-[9px] w-fit gap-1 font-normal">
+                            <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+                            Ready to generate
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[9px] w-fit gap-1 font-normal text-muted-foreground">
+                            Browse only
+                          </Badge>
+                        )}
+                        {model.tags?.length ? (
+                          <div className="flex flex-wrap gap-1 pt-0.5">
+                            {model.tags.slice(0, 3).map((tag) => (
+                              <Badge
+                                key={tag}
+                                variant="outline"
+                                className="text-[9px] h-4 px-1.5 font-normal"
+                              >
+                                {tag}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })
+              : displayResults.map((model, idx) => {
+                  const version = model.modelVersions?.[0];
+                  const preview = version?.images?.[0];
+                  const isFaved = version ? favoriteVersionIds.has(version.id) : false;
+                  const isFaving = version ? favoritingIds.has(version.id) : false;
+
+                  return (
+                    <div
+                      key={`${model.id}-${idx}`}
+                      className="group relative rounded-xl border border-border/40 bg-card overflow-hidden transition-all duration-200 hover:border-border hover:shadow-md cursor-pointer"
+                      onClick={() => openDetail(model)}
+                    >
+                      {/* Preview */}
+                      <div className="aspect-[3/4] bg-muted/20 overflow-hidden">
+                        <LoraImage src={preview?.url} type={preview?.type} />
+                      </div>
+
+                      {/* Favorite button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleFavorite(model);
+                        }}
+                        disabled={isFaving}
+                        className="absolute top-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-black/40 backdrop-blur-sm text-white transition-all hover:bg-black/60 hover:scale-110 cursor-pointer"
+                      >
+                        <Heart
+                          className={`h-4 w-4 transition-colors ${isFaved ? "fill-red-400 text-red-400" : ""}`}
+                        />
+                      </button>
+
+                      {/* Info */}
+                      <div className="p-3 space-y-1.5">
+                        <h3 className="text-sm font-medium leading-tight line-clamp-2">
+                          {model.name}
+                        </h3>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          {model.creator?.image ? (
+                            <img
+                              src={model.creator.image}
+                              alt=""
+                              className="h-4 w-4 rounded-full"
+                            />
+                          ) : null}
+                          <span className="truncate">{model.creator?.username}</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-[11px] text-muted-foreground/70">
+                          <span className="flex items-center gap-1">
+                            <Download className="h-3 w-3" />
+                            {formatCount(model.stats?.downloadCount ?? 0)}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <ThumbsUp className="h-3 w-3" />
+                            {formatCount(model.stats?.thumbsUpCount ?? 0)}
+                          </span>
+                        </div>
+                        {activeBaseModel?.canGenerate ? (
+                          <Badge variant="secondary" className="text-[9px] w-fit gap-1 font-normal">
+                            <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+                            Ready to generate
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[9px] w-fit gap-1 font-normal text-muted-foreground">
+                            Browse only
+                          </Badge>
+                        )}
+                        {model.tags?.length ? (
+                          <div className="flex flex-wrap gap-1 pt-0.5">
+                            {model.tags.slice(0, 3).map((tag) => (
+                              <Badge
+                                key={tag}
+                                variant="outline"
+                                className="text-[9px] h-4 px-1.5 font-normal"
+                              >
+                                {tag}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
           </div>
 
           {/* Load more */}
@@ -553,9 +799,144 @@ export function LorasClient() {
               onImageIdxChange={setActiveImageIdx}
             />
           </DialogContent>
+        ) : selectedHfModel ? (
+          <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+            <HfLoraDetailPanel
+              model={selectedHfModel}
+              isFaved={favoriteKeys.has(`hf:${selectedHfModel.id}`)}
+              onToggleFavorite={() => toggleHfFavorite(selectedHfModel)}
+            />
+          </DialogContent>
         ) : null}
       </Dialog>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HuggingFace Detail Panel
+// ---------------------------------------------------------------------------
+
+function HfLoraDetailPanel({
+  model,
+  isFaved,
+  onToggleFavorite,
+}: {
+  model: HfSearchResult;
+  isFaved: boolean;
+  onToggleFavorite: () => void;
+}) {
+  return (
+    <>
+      <DialogHeader className="sr-only">
+        <DialogTitle>{model.name}</DialogTitle>
+        <DialogDescription>HuggingFace LoRA details</DialogDescription>
+      </DialogHeader>
+
+      <div className="grid md:grid-cols-[1fr_300px] gap-6">
+        {/* Left column -- preview */}
+        <div className="space-y-2 min-w-0">
+          {model.previewImageUrl ? (
+            <div className="relative aspect-square rounded-lg overflow-hidden bg-muted/20">
+              <img
+                src={model.previewImageUrl}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+            </div>
+          ) : (
+            <div className="aspect-square rounded-lg bg-muted/20 flex items-center justify-center">
+              <Layers className="h-16 w-16 text-muted-foreground/15" />
+            </div>
+          )}
+        </div>
+
+        {/* Right column -- metadata */}
+        <div className="space-y-4 min-w-0 overflow-y-auto max-h-[70vh]">
+          <div className="space-y-2">
+            <h2 className="text-xl font-semibold leading-tight">{model.name}</h2>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span>{model.author}</span>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            <Button
+              variant={isFaved ? "secondary" : "default"}
+              className="flex-1 gap-2 cursor-pointer"
+              onClick={onToggleFavorite}
+            >
+              <Heart className={`h-4 w-4 ${isFaved ? "fill-red-400 text-red-400" : ""}`} />
+              {isFaved ? "Favorited" : "Favorite"}
+            </Button>
+            <Button
+              variant="outline"
+              className="gap-2 cursor-pointer"
+              onClick={() => window.open(`https://huggingface.co/${model.id}`, "_blank")}
+            >
+              <ExternalLink className="h-4 w-4" />
+              HuggingFace
+            </Button>
+          </div>
+
+          {/* Stats grid */}
+          <div className="grid grid-cols-2 gap-2">
+            <StatCard icon={Download} label="Downloads" value={formatCount(model.downloads)} />
+            <StatCard icon={ThumbsUp} label="Likes" value={formatCount(model.likes)} />
+          </div>
+
+          {/* Trigger words */}
+          {model.triggerWords.length > 0 ? (
+            <div className="space-y-1.5">
+              <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                Trigger Words
+              </h4>
+              <div className="flex flex-wrap gap-1.5">
+                {model.triggerWords.map((word) => (
+                  <Badge key={word} variant="secondary" className="text-xs font-mono">
+                    {word}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Tags */}
+          {model.tags?.length ? (
+            <div className="space-y-1.5">
+              <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                Tags
+              </h4>
+              <div className="flex flex-wrap gap-1">
+                {model.tags.map((tag) => (
+                  <Badge key={tag} variant="outline" className="text-[10px] font-normal">
+                    {tag}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Safetensors files */}
+          {model.safetensorsFiles.length > 0 ? (
+            <div className="space-y-1.5">
+              <h4 className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                Model Files
+              </h4>
+              <div className="space-y-1">
+                {model.safetensorsFiles.map((file) => (
+                  <div key={file} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <FileType className="h-3 w-3 shrink-0" />
+                    <span className="truncate font-mono">{file}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -832,3 +1213,4 @@ function formatCount(n: number): string {
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
   return String(n);
 }
+

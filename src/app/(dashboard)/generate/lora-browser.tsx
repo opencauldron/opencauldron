@@ -27,7 +27,8 @@ import {
   Loader2,
   AlertCircle,
 } from "lucide-react";
-import type { CivitaiModel, SelectedLora } from "@/types";
+import type { CivitaiModel, SelectedLora, LoraSource } from "@/types";
+import { getLoraUniqueKey } from "@/lib/lora-utils";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,13 +45,28 @@ interface LoraBrowserProps {
 
 interface FavoriteLora {
   id: string;
-  civitaiModelId: number;
-  civitaiVersionId: number;
+  source?: LoraSource;
+  civitaiModelId?: number;
+  civitaiVersionId?: number;
+  hfRepoId?: string;
   name: string;
   downloadUrl: string;
   triggerWords: string[];
   previewImageUrl: string | null;
   createdAt: string;
+}
+
+interface HfSearchResult {
+  id: string;
+  author: string;
+  name: string;
+  downloads: number;
+  likes: number;
+  tags: string[];
+  previewImageUrl: string | null;
+  triggerWords: string[];
+  downloadUrl: string | null;
+  safetensorsFiles: string[];
 }
 
 const MAX_LORAS = 5;
@@ -70,11 +86,13 @@ export function LoraBrowser({
 }: LoraBrowserProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"browse" | "favorites">("browse");
+  const [browseSource, setBrowseSource] = useState<LoraSource>("civitai");
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [searchResults, setSearchResults] = useState<CivitaiModel[]>([]);
+  const [hfSearchResults, setHfSearchResults] = useState<HfSearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -106,12 +124,32 @@ export function LoraBrowser({
     };
   }, []);
 
+  // Reset results when source changes
+  useEffect(() => {
+    setSearchResults([]);
+    setHfSearchResults([]);
+    setCursor(null);
+    setSearchError(null);
+  }, [browseSource]);
+
   // -----------------------------------------------------------------------
   // Fetch search results
   // -----------------------------------------------------------------------
 
   const fetchSearch = useCallback(
     async (query: string, nsfw: boolean, nextCursor?: string) => {
+      if (browseSource === "huggingface") {
+        const params = new URLSearchParams();
+        if (query) params.set("query", query);
+        params.set("sort", "downloads");
+        if (baseModel) params.set("baseModel", baseModel);
+        if (nextCursor) params.set("cursor", nextCursor);
+
+        const res = await fetch(`/api/huggingface/search?${params.toString()}`);
+        if (!res.ok) throw new Error("Search failed");
+        return res.json();
+      }
+
       const params = new URLSearchParams();
       if (query) params.set("query", query);
       params.set("nsfw", String(nsfw));
@@ -125,7 +163,7 @@ export function LoraBrowser({
         metadata?: { nextCursor?: string };
       }>;
     },
-    [baseModel]
+    [baseModel, browseSource]
   );
 
   useEffect(() => {
@@ -138,13 +176,19 @@ export function LoraBrowser({
     fetchSearch(debouncedQuery, nsfwEnabled)
       .then((data) => {
         if (cancelled) return;
-        setSearchResults(data.items ?? []);
-        setCursor(data.metadata?.nextCursor ?? null);
+        if (browseSource === "huggingface") {
+          setHfSearchResults(data.items ?? []);
+          setCursor(data.nextCursor ?? null);
+        } else {
+          setSearchResults(data.items ?? []);
+          setCursor(data.metadata?.nextCursor ?? null);
+        }
       })
       .catch((err) => {
         if (cancelled) return;
         setSearchError(err instanceof Error ? err.message : "Search failed");
         setSearchResults([]);
+        setHfSearchResults([]);
       })
       .finally(() => {
         if (!cancelled) setIsSearching(false);
@@ -153,7 +197,7 @@ export function LoraBrowser({
     return () => {
       cancelled = true;
     };
-  }, [debouncedQuery, nsfwEnabled, isOpen, fetchSearch]);
+  }, [debouncedQuery, nsfwEnabled, isOpen, fetchSearch, browseSource]);
 
   // -----------------------------------------------------------------------
   // Load more
@@ -164,14 +208,19 @@ export function LoraBrowser({
     setIsLoadingMore(true);
     try {
       const data = await fetchSearch(debouncedQuery, nsfwEnabled, cursor);
-      setSearchResults((prev) => [...prev, ...(data.items ?? [])]);
-      setCursor(data.metadata?.nextCursor ?? null);
+      if (browseSource === "huggingface") {
+        setHfSearchResults((prev) => [...prev, ...(data.items ?? [])]);
+        setCursor(data.nextCursor ?? null);
+      } else {
+        setSearchResults((prev) => [...prev, ...(data.items ?? [])]);
+        setCursor(data.metadata?.nextCursor ?? null);
+      }
     } catch {
       // Silent — user can retry
     } finally {
       setIsLoadingMore(false);
     }
-  }, [cursor, isLoadingMore, fetchSearch, debouncedQuery, nsfwEnabled]);
+  }, [cursor, isLoadingMore, fetchSearch, debouncedQuery, nsfwEnabled, browseSource]);
 
   // -----------------------------------------------------------------------
   // Fetch favorites
@@ -192,17 +241,25 @@ export function LoraBrowser({
   }, [isOpen, isFavoritesLoaded]);
 
   // -----------------------------------------------------------------------
-  // Favorite IDs for quick lookup
+  // Key-based deduplication
   // -----------------------------------------------------------------------
 
+  const selectedKeys = useMemo(
+    () => new Set(selectedLoras.map((l) => getLoraUniqueKey(l))),
+    [selectedLoras]
+  );
+
   const favoriteVersionIds = useMemo(
-    () => new Set(favorites.map((f) => f.civitaiVersionId)),
+    () => new Set(favorites.filter((f) => (f.source ?? "civitai") === "civitai").map((f) => f.civitaiVersionId!)),
     [favorites]
   );
 
-  const selectedVersionIds = useMemo(
-    () => new Set(selectedLoras.map((l) => l.civitaiVersionId)),
-    [selectedLoras]
+  const favoriteKeys = useMemo(
+    () => new Set(favorites.map((f) => {
+      const s = f.source ?? "civitai";
+      return s === "civitai" ? `civitai:${f.civitaiVersionId}` : `hf:${f.hfRepoId}`;
+    })),
+    [favorites]
   );
 
   // -----------------------------------------------------------------------
@@ -211,18 +268,18 @@ export function LoraBrowser({
 
   const addLora = useCallback(
     (lora: SelectedLora) => {
-      if (isAtLimit || selectedVersionIds.has(lora.civitaiVersionId)) return;
+      if (isAtLimit || selectedKeys.has(getLoraUniqueKey(lora))) return;
       const next = [...selectedLoras, lora];
       onLorasChange(next);
       const allTriggers = next.flatMap((l) => l.triggerWords);
       onTriggerWordsChange(allTriggers);
     },
-    [selectedLoras, isAtLimit, selectedVersionIds, onLorasChange, onTriggerWordsChange]
+    [selectedLoras, isAtLimit, selectedKeys, onLorasChange, onTriggerWordsChange]
   );
 
   const removeLora = useCallback(
-    (versionId: number) => {
-      const next = selectedLoras.filter((l) => l.civitaiVersionId !== versionId);
+    (key: string) => {
+      const next = selectedLoras.filter((l) => getLoraUniqueKey(l) !== key);
       onLorasChange(next);
       onTriggerWordsChange(next.flatMap((l) => l.triggerWords));
     },
@@ -230,10 +287,10 @@ export function LoraBrowser({
   );
 
   const updateScale = useCallback(
-    (versionId: number, scale: number) => {
+    (key: string, scale: number) => {
       onLorasChange(
         selectedLoras.map((l) =>
-          l.civitaiVersionId === versionId ? { ...l, scale } : l
+          getLoraUniqueKey(l) === key ? { ...l, scale } : l
         )
       );
     },
@@ -253,6 +310,7 @@ export function LoraBrowser({
 
       const previewImage = version.images?.[0];
       addLora({
+        source: "civitai",
         civitaiModelId: model.id,
         civitaiVersionId: version.id,
         name: model.name,
@@ -266,15 +324,38 @@ export function LoraBrowser({
   );
 
   // -----------------------------------------------------------------------
+  // Add from HuggingFace
+  // -----------------------------------------------------------------------
+
+  const addFromHuggingFace = useCallback(
+    (model: HfSearchResult) => {
+      if (!model.downloadUrl) return;
+      addLora({
+        source: "huggingface",
+        hfRepoId: model.id,
+        name: model.name,
+        downloadUrl: model.downloadUrl,
+        scale: 1.0,
+        triggerWords: model.triggerWords ?? [],
+        previewImageUrl: model.previewImageUrl ?? undefined,
+      });
+    },
+    [addLora]
+  );
+
+  // -----------------------------------------------------------------------
   // Add from favorite
   // -----------------------------------------------------------------------
 
   const addFromFavorite = useCallback(
     (fav: FavoriteLora) => {
+      const favSource = fav.source ?? "civitai";
       addLora({
         id: fav.id,
+        source: favSource,
         civitaiModelId: fav.civitaiModelId,
         civitaiVersionId: fav.civitaiVersionId,
+        hfRepoId: fav.hfRepoId,
         name: fav.name,
         downloadUrl: fav.downloadUrl,
         scale: 1.0,
@@ -294,7 +375,7 @@ export function LoraBrowser({
       const version = model.modelVersions?.[0];
       if (!version) return;
 
-      const existing = favorites.find((f) => f.civitaiVersionId === version.id);
+      const existing = favorites.find((f) => (f.source ?? "civitai") === "civitai" && f.civitaiVersionId === version.id);
       setFavoritingIds((prev) => new Set(prev).add(version.id));
 
       try {
@@ -309,6 +390,7 @@ export function LoraBrowser({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              source: "civitai",
               civitaiModelId: model.id,
               civitaiVersionId: version.id,
               name: model.name,
@@ -345,13 +427,13 @@ export function LoraBrowser({
       previewUrl: string | undefined | null,
       downloads: number | null,
       creator: string | null,
-      versionId: number,
+      uniqueKey: string,
       onAdd: () => void,
       onToggleFav?: () => void,
       isFaved?: boolean,
       isFaving?: boolean,
     ) => {
-      const isSelected = selectedVersionIds.has(versionId);
+      const isSelected = selectedKeys.has(uniqueKey);
 
       return (
         <div
@@ -433,12 +515,14 @@ export function LoraBrowser({
         </div>
       );
     },
-    [selectedVersionIds, isAtLimit]
+    [selectedKeys, isAtLimit]
   );
 
   // -----------------------------------------------------------------------
   // Main render
   // -----------------------------------------------------------------------
+
+  const currentSearchResults = browseSource === "huggingface" ? hfSearchResults : searchResults;
 
   return (
     <Card>
@@ -493,27 +577,49 @@ export function LoraBrowser({
                 </TabsTrigger>
               </TabsList>
 
-              {/* NSFW toggle */}
-              <div className="flex items-center gap-1.5">
-                <Label htmlFor="nsfw-toggle" className="text-[10px] text-muted-foreground cursor-pointer">
-                  NSFW
-                </Label>
-                <Switch
-                  id="nsfw-toggle"
-                  checked={nsfwEnabled}
-                  onCheckedChange={onNsfwChange}
-                  className="scale-75 origin-right"
-                />
-              </div>
+              {/* NSFW toggle — only for Civitai */}
+              {browseSource === "civitai" ? (
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="nsfw-toggle" className="text-[10px] text-muted-foreground cursor-pointer">
+                    NSFW
+                  </Label>
+                  <Switch
+                    id="nsfw-toggle"
+                    checked={nsfwEnabled}
+                    onCheckedChange={onNsfwChange}
+                    className="scale-75 origin-right"
+                  />
+                </div>
+              ) : null}
             </div>
 
             {/* Browse tab */}
             <TabsContent value="browse" className="mt-3 space-y-3">
+              {/* Source selector */}
+              <div className="flex items-center gap-1 rounded-md bg-secondary/50 p-0.5">
+                <Button
+                  variant={browseSource === "civitai" ? "default" : "ghost"}
+                  size="sm"
+                  className="h-6 text-[10px] px-2 cursor-pointer"
+                  onClick={() => setBrowseSource("civitai")}
+                >
+                  Civitai
+                </Button>
+                <Button
+                  variant={browseSource === "huggingface" ? "default" : "ghost"}
+                  size="sm"
+                  className="h-6 text-[10px] px-2 cursor-pointer"
+                  onClick={() => setBrowseSource("huggingface")}
+                >
+                  HuggingFace
+                </Button>
+              </div>
+
               {/* Search input */}
               <div className="relative">
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                 <Input
-                  placeholder="Search Civitai LoRAs..."
+                  placeholder={browseSource === "huggingface" ? "Search HuggingFace LoRAs..." : "Search Civitai LoRAs..."}
                   value={searchQuery}
                   onChange={(e) => handleSearchChange(e.target.value)}
                   className="pl-8 h-8 text-xs bg-secondary/50 border-border/50"
@@ -536,7 +642,7 @@ export function LoraBrowser({
                     </div>
                   ))}
                 </div>
-              ) : searchResults.length === 0 ? (
+              ) : currentSearchResults.length === 0 ? (
                 <p className="text-xs text-muted-foreground text-center py-6">
                   {debouncedQuery ? "No LoRAs found" : "Search for LoRAs to get started"}
                 </p>
@@ -544,22 +650,39 @@ export function LoraBrowser({
                 <>
                   <div className="max-h-[420px] overflow-y-auto">
                     <div className="grid grid-cols-2 gap-2 pr-1">
-                      {searchResults.map((model, idx) => {
-                        const version = model.modelVersions?.[0];
-                        const preview = version?.images?.[0];
-                        return renderLoraCard(
-                          `${model.id}-${idx}`,
-                          model.name,
-                          preview?.url,
-                          model.stats?.downloadCount,
-                          model.creator?.username,
-                          version?.id ?? 0,
-                          () => addFromCivitai(model),
-                          () => toggleFavorite(model),
-                          version ? favoriteVersionIds.has(version.id) : false,
-                          version ? favoritingIds.has(version.id) : false,
-                        );
-                      })}
+                      {browseSource === "huggingface"
+                        ? hfSearchResults.map((model, idx) => {
+                            const uniqueKey = `hf:${model.id}`;
+                            return renderLoraCard(
+                              `${model.id}-${idx}`,
+                              model.name,
+                              model.previewImageUrl,
+                              model.downloads,
+                              model.author,
+                              uniqueKey,
+                              () => addFromHuggingFace(model),
+                              undefined,
+                              favoriteKeys.has(uniqueKey),
+                              false,
+                            );
+                          })
+                        : searchResults.map((model, idx) => {
+                            const version = model.modelVersions?.[0];
+                            const preview = version?.images?.[0];
+                            const uniqueKey = `civitai:${version?.id ?? 0}`;
+                            return renderLoraCard(
+                              `${model.id}-${idx}`,
+                              model.name,
+                              preview?.url,
+                              model.stats?.downloadCount,
+                              model.creator?.username,
+                              uniqueKey,
+                              () => addFromCivitai(model),
+                              () => toggleFavorite(model),
+                              version ? favoriteVersionIds.has(version.id) : false,
+                              version ? favoritingIds.has(version.id) : false,
+                            );
+                          })}
                     </div>
                   </div>
 
@@ -605,17 +728,21 @@ export function LoraBrowser({
               ) : (
                 <div className="max-h-[420px] overflow-y-auto">
                   <div className="grid grid-cols-2 gap-2 pr-1">
-                    {favorites.map((fav) =>
-                      renderLoraCard(
+                    {favorites.map((fav) => {
+                      const favSource = fav.source ?? "civitai";
+                      const uniqueKey = favSource === "civitai"
+                        ? `civitai:${fav.civitaiVersionId}`
+                        : `hf:${fav.hfRepoId}`;
+                      return renderLoraCard(
                         fav.id,
                         fav.name,
                         fav.previewImageUrl,
                         null,
                         null,
-                        fav.civitaiVersionId,
+                        uniqueKey,
                         () => addFromFavorite(fav),
-                      )
-                    )}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -635,79 +762,82 @@ export function LoraBrowser({
               </div>
 
               <div className="space-y-2">
-                {selectedLoras.map((lora) => (
-                  <div
-                    key={lora.civitaiVersionId}
-                    className="flex gap-2.5 items-start rounded-md border border-border/50 bg-secondary/30 p-2"
-                  >
-                    {/* Thumbnail */}
-                    <div className="h-10 w-10 shrink-0 rounded overflow-hidden bg-muted/50">
-                      {lora.previewImageUrl ? (
-                        <img
-                          src={lora.previewImageUrl}
-                          alt={lora.name}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="h-full w-full flex items-center justify-center">
-                          <Layers className="h-4 w-4 text-muted-foreground/40" />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Details */}
-                    <div className="flex-1 min-w-0 space-y-1.5">
-                      <div className="flex items-center justify-between gap-1">
-                        <p className="text-xs font-medium truncate">{lora.name}</p>
-                        <button
-                          onClick={() => removeLora(lora.civitaiVersionId)}
-                          className="shrink-0 h-5 w-5 flex items-center justify-center rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
+                {selectedLoras.map((lora) => {
+                  const loraKey = getLoraUniqueKey(lora);
+                  return (
+                    <div
+                      key={loraKey}
+                      className="flex gap-2.5 items-start rounded-md border border-border/50 bg-secondary/30 p-2"
+                    >
+                      {/* Thumbnail */}
+                      <div className="h-10 w-10 shrink-0 rounded overflow-hidden bg-muted/50">
+                        {lora.previewImageUrl ? (
+                          <img
+                            src={lora.previewImageUrl}
+                            alt={lora.name}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="h-full w-full flex items-center justify-center">
+                            <Layers className="h-4 w-4 text-muted-foreground/40" />
+                          </div>
+                        )}
                       </div>
 
-                      {/* Scale slider */}
-                      <div className="flex items-center gap-2">
-                        <Label className="text-[10px] text-muted-foreground shrink-0 w-8">
-                          {lora.scale.toFixed(1)}
-                        </Label>
-                        <input
-                          type="range"
-                          min={0}
-                          max={4}
-                          step={0.1}
-                          value={lora.scale}
-                          onChange={(e) =>
-                            updateScale(lora.civitaiVersionId, parseFloat(e.target.value))
-                          }
-                          className="flex-1 h-1 accent-primary cursor-pointer"
-                        />
-                      </div>
-
-                      {/* Trigger words */}
-                      {lora.triggerWords.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {lora.triggerWords.map((word) => (
-                            <Tooltip key={word}>
-                              <TooltipTrigger>
-                                <Badge
-                                  variant="outline"
-                                  className="text-[9px] h-4 px-1.5 cursor-default font-mono"
-                                >
-                                  {word}
-                                </Badge>
-                              </TooltipTrigger>
-                              <TooltipContent side="top" className="text-xs">
-                                Trigger word — include in your prompt
-                              </TooltipContent>
-                            </Tooltip>
-                          ))}
+                      {/* Details */}
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        <div className="flex items-center justify-between gap-1">
+                          <p className="text-xs font-medium truncate">{lora.name}</p>
+                          <button
+                            onClick={() => removeLora(loraKey)}
+                            className="shrink-0 h-5 w-5 flex items-center justify-center rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
                         </div>
-                      ) : null}
+
+                        {/* Scale slider */}
+                        <div className="flex items-center gap-2">
+                          <Label className="text-[10px] text-muted-foreground shrink-0 w-8">
+                            {lora.scale.toFixed(1)}
+                          </Label>
+                          <input
+                            type="range"
+                            min={0}
+                            max={4}
+                            step={0.1}
+                            value={lora.scale}
+                            onChange={(e) =>
+                              updateScale(loraKey, parseFloat(e.target.value))
+                            }
+                            className="flex-1 h-1 accent-primary cursor-pointer"
+                          />
+                        </div>
+
+                        {/* Trigger words */}
+                        {lora.triggerWords.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {lora.triggerWords.map((word) => (
+                              <Tooltip key={word}>
+                                <TooltipTrigger>
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[9px] h-4 px-1.5 cursor-default font-mono"
+                                  >
+                                    {word}
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="text-xs">
+                                  Trigger word — include in your prompt
+                                </TooltipContent>
+                              </Tooltip>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ) : null}

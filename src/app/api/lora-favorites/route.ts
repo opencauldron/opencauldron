@@ -5,7 +5,32 @@ import { loraFavorites } from "@/lib/db/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { z } from "zod";
 
-const favoriteSchema = z.object({
+const civitaiFavoriteSchema = z.object({
+  source: z.literal("civitai"),
+  civitaiModelId: z.number().int(),
+  civitaiVersionId: z.number().int(),
+  name: z.string().min(1),
+  downloadUrl: z.string().url(),
+  triggerWords: z.array(z.string()).optional(),
+  previewImageUrl: z.string().url().optional(),
+});
+
+const huggingfaceFavoriteSchema = z.object({
+  source: z.literal("huggingface"),
+  hfRepoId: z.string().min(1),
+  name: z.string().min(1),
+  downloadUrl: z.string().url(),
+  triggerWords: z.array(z.string()).optional(),
+  previewImageUrl: z.string().url().optional(),
+});
+
+const favoriteSchema = z.discriminatedUnion("source", [
+  civitaiFavoriteSchema,
+  huggingfaceFavoriteSchema,
+]);
+
+// Legacy schema for backward compatibility (no source field)
+const legacyFavoriteSchema = z.object({
   civitaiModelId: z.number().int(),
   civitaiVersionId: z.number().int(),
   name: z.string().min(1),
@@ -38,7 +63,17 @@ export async function POST(req: NextRequest) {
   const userId = session.user.id;
 
   const body = await req.json();
-  const parsed = favoriteSchema.safeParse(body);
+
+  // Try new schema first, then fall back to legacy (no source field)
+  let parsed = favoriteSchema.safeParse(body);
+  if (!parsed.success) {
+    const legacyParsed = legacyFavoriteSchema.safeParse(body);
+    if (legacyParsed.success) {
+      // Re-parse with source defaulted
+      parsed = favoriteSchema.safeParse({ ...legacyParsed.data, source: "civitai" });
+    }
+  }
+
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Invalid input", details: parsed.error.flatten() },
@@ -47,17 +82,24 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const values: Record<string, unknown> = {
+      userId,
+      source: parsed.data.source,
+      name: parsed.data.name,
+      downloadUrl: parsed.data.downloadUrl,
+      triggerWords: parsed.data.triggerWords ?? [],
+      previewImageUrl: parsed.data.previewImageUrl,
+    };
+    if (parsed.data.source === "civitai") {
+      values.civitaiModelId = parsed.data.civitaiModelId;
+      values.civitaiVersionId = parsed.data.civitaiVersionId;
+    } else {
+      values.hfRepoId = parsed.data.hfRepoId;
+    }
+
     const [favorite] = await db
       .insert(loraFavorites)
-      .values({
-        userId,
-        civitaiModelId: parsed.data.civitaiModelId,
-        civitaiVersionId: parsed.data.civitaiVersionId,
-        name: parsed.data.name,
-        downloadUrl: parsed.data.downloadUrl,
-        triggerWords: parsed.data.triggerWords ?? [],
-        previewImageUrl: parsed.data.previewImageUrl,
-      })
+      .values(values as typeof loraFavorites.$inferInsert)
       .returning();
 
     return NextResponse.json({ favorite });
