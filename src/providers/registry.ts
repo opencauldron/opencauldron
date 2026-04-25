@@ -4,6 +4,7 @@ import { grokProvider, grokProProvider } from "./grok";
 import { fluxProvider, fluxDevProvider, fluxKontextProvider, fluxKleinProvider } from "./flux";
 import { ideogramProvider } from "./ideogram";
 import { recraftProvider, recraft20bProvider, recraftV4Provider, recraftV4ProProvider } from "./recraft";
+import { openaiGptImageProvider, openaiGptImage1Provider, openaiGptImageMiniProvider } from "./openai";
 import { veoProvider, veo31Provider, veoFastProvider } from "./veo";
 import { runwayProvider, runwayGen45Provider } from "./runway";
 import { klingProvider, klingProProvider } from "./kling";
@@ -30,6 +31,9 @@ const allProviders: GenerationProvider[] = [
   recraftV4Provider,
   recraftV4ProProvider,
   ideogramProvider,
+  openaiGptImageProvider,
+  openaiGptImage1Provider,
+  openaiGptImageMiniProvider,
   // Video providers
   veoProvider,
   veo31Provider,
@@ -58,6 +62,8 @@ const VARIANT_ONLY_IDS: Set<ModelId> = new Set([
   "recraft-20b",
   "recraft-v4",
   "recraft-v4-pro",
+  "gpt-image-1",
+  "gpt-image-1-mini",
   "veo-3.1",
   "veo-3-fast",
   "runway-gen4.5",
@@ -181,6 +187,29 @@ const VARIANT_GROUPS: Partial<Record<ModelId, ModelVariant[]>> = {
       description: "Premium. 4MP print-ready output.",
     },
   ],
+  "gpt-image-1.5": [
+    {
+      id: "gpt-image-1.5",
+      label: "1.5",
+      costPerImage: 0.042,
+      avgGenerationTime: 12,
+      description: "OpenAI's latest. Strong instruction-following, native transparent backgrounds.",
+    },
+    {
+      id: "gpt-image-1",
+      label: "1.0",
+      costPerImage: 0.042,
+      avgGenerationTime: 12,
+      description: "Original GA model. Stable choice for production.",
+    },
+    {
+      id: "gpt-image-1-mini",
+      label: "Mini",
+      costPerImage: 0.021,
+      avgGenerationTime: 8,
+      description: "Cost-optimized. ~½ the price for similar tasks.",
+    },
+  ],
   "veo-3": [
     {
       id: "veo-3",
@@ -294,6 +323,8 @@ function hasApiKey(provider: GenerationProvider): boolean {
       return !!process.env.IDEOGRAM_API_KEY;
     case "recraft":
       return !!process.env.RECRAFT_API_KEY;
+    case "openai":
+      return !!process.env.OPENAI_API_KEY;
     case "runway":
       return !!process.env.RUNWAY_API_KEY;
     case "fal":
@@ -379,6 +410,9 @@ function getModelDescription(id: ModelId): string {
     "recraft-20b": "Lighter Recraft model. Nearly half the cost, still solid quality.",
     "recraft-v4": "Latest model. 10K char prompts, improved quality.",
     "recraft-v4-pro": "Premium. 4MP print-ready output.",
+    "gpt-image-1.5": "OpenAI's latest. Strong instruction-following, native transparent backgrounds.",
+    "gpt-image-1": "OpenAI's original GA model. Stable choice for production.",
+    "gpt-image-1-mini": "Cost-optimized OpenAI image model. ~½ the price for similar tasks.",
     "veo-3": "Google's video model with native audio. Up to 8s clips.",
     "veo-3.1": "4K support, video extension up to 148s, reference images.",
     "veo-3-fast": "Faster variant. Same quality, lower latency.",
@@ -413,6 +447,9 @@ function getAvgGenTime(id: ModelId): number {
     "recraft-20b": 5,
     "recraft-v4": 8,
     "recraft-v4-pro": 10,
+    "gpt-image-1.5": 12,
+    "gpt-image-1": 12,
+    "gpt-image-1-mini": 8,
     "veo-3": 120,
     "veo-3.1": 120,
     "veo-3-fast": 60,

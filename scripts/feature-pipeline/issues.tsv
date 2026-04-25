@@ -1,0 +1,24 @@
+Background removal	Auto-remove backgrounds from generated or uploaded images so product/people shots can be reused as transparent assets.	P0,persona:ecommerce
+Named collections / folders	Let users group brews/assets into named folders for project organization and quick retrieval.	P1,persona:content-creator,persona:creative-director,persona:freelancer
+Bulk download with naming control	Download multiple assets at once with templated filenames (e.g. {brand}-{date}-{n}).	P1,persona:social-manager,persona:performance-marketer
+Team prompt library / admin-curated brews	Shared, admin-curated library of approved prompts/brews so non-experts produce on-brand output.	P1,persona:brand-ops,persona:creative-director,persona:social-manager
+Format / dimension presets	One-click presets for common output sizes (IG square, story, 16:9, OG image, etc.).	P1,persona:social-manager,persona:performance-marketer,persona:ecommerce
+Approval / review workflow	Submit assets for review, capture approve/reject decisions, and gate publishing on approval.	P1,persona:creative-director
+Asset commenting / annotation	Leave inline comments and pin annotations on specific regions of an asset.	P2,persona:creative-director
+Moodboard collections	Curate a moodboard of reference images and generated assets for direction-setting.	P2,persona:creative-director
+Organized export packages	Export a campaign as a single archive with a manifest, organized by format and channel.	P3,persona:creative-director
+Content calendar / publish scheduling	Schedule assets to a publish calendar, optionally pushing to social platforms.	P3,persona:social-manager
+Alt text / caption generation	Auto-generate alt text and social captions from generated images.	P2,persona:content-creator
+CMS export integration	Push assets directly to common CMSes (WordPress, Contentful, Sanity, Webflow).	P3,persona:content-creator
+Campaign / A/B test grouping	Group assets into campaigns and A/B variant sets for downstream measurement.	P1,persona:performance-marketer
+Analytics on exported/used assets	Track which assets were exported and (where possible) which performed in-channel.	P2,persona:performance-marketer
+Bulk generation from a product list	Upload a CSV/product feed and generate variant images per row in one job.	P1,persona:ecommerce
+Product image templates	Reusable templates that compose product shots with backgrounds, scenes, and overlays.	P2,persona:ecommerce
+Background swap workflow	Replace backgrounds on existing product shots while preserving subject fidelity.	P2,persona:ecommerce
+Granular roles beyond admin/member	Add roles like Reviewer, Brand Manager, Viewer with scoped permissions.	P1,persona:brand-ops
+Brand kit (logo, font, palette)	Centralize brand assets (logo, fonts, color palette) and apply them across generations and exports.	P2,persona:brand-ops
+Onboarding flow for new team members	Guided onboarding that surfaces brand kit, prompt library, and best-practice flows.	P2,persona:brand-ops
+Audit log	Append-only log of who did what (generations, exports, role changes, deletions).	P2,persona:brand-ops
+Project-level workspaces / client isolation	Per-client workspaces with isolated assets, members, and billing context.	P1,persona:freelancer
+Per-project usage and cost reporting	Show usage and cost broken down by project/client for invoicing.	P2,persona:freelancer
+Branded export / white-label output	White-label export packages with the agency's branding instead of OpenCauldron's.	P3,persona:freelancer

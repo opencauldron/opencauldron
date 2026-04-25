@@ -7,6 +7,15 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-04-25",
+    title: "OpenAI image models",
+    bullets: [
+      "Added gpt-image-1.5, gpt-image-1, and gpt-image-1-mini",
+      "Native transparent PNG output for product and logo work",
+      "Add OPENAI_API_KEY to .env to enable",
+    ],
+  },
+  {
+    date: "2026-04-25",
     title: "Help menu and sidebar polish",
     bullets: [
       "New Help menu with Documentation, Report a bug, and About",
