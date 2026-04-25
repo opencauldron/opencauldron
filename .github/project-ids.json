@@ -1,0 +1,38 @@
+{
+  "owner": "opencauldron",
+  "projectNumber": 1,
+  "projectId": "PVT_kwDOEBgh-c4BVrYx",
+  "statusFieldId": "PVTSSF_lADOEBgh-c4BVrYxzhRFjNI",
+  "statusOptions": {
+    "Backlog": "c604b372",
+    "Refined": "1970d2ea",
+    "Ready to Build": "beb34b05",
+    "In Progress": "47fc9ee4",
+    "Review": "16ab42a7",
+    "Done": "98236657"
+  },
+  "labels": {
+    "priority": [
+      "P0",
+      "P1",
+      "P2",
+      "P3"
+    ],
+    "personas": [
+      "persona:creative-director",
+      "persona:social-manager",
+      "persona:content-creator",
+      "persona:performance-marketer",
+      "persona:ecommerce",
+      "persona:brand-ops",
+      "persona:freelancer"
+    ],
+    "workflow": [
+      "ready-to-build",
+      "in-progress"
+    ]
+  },
+  "capturedAt": "2026-04-25T14:23:11Z",
+  "capturedBy": "adamlevoy",
+  "_warning": "Do not delete Status options. Renaming is safe (IDs are stable). Deletion breaks the scheduled feature-pipeline agent."
+}
