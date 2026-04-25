@@ -2,6 +2,7 @@
   "name": "opencauldron",
   "version": "0.1.0",
   "private": false,
+  "packageManager": "pnpm@10.5.2",
   "description": "Open source AI media generation studio. Generate images and videos with 10+ AI models from a single interface.",
   "license": "MIT",
   "repository": {

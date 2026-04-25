@@ -6,7 +6,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Package manager
 
-This project uses **Bun**, not npm. Use `bun install`, `bun run <script>`, and `bunx <bin>` (not `npm`/`npx`/`yarn`/`pnpm`). The canonical lockfile is `bun.lock` — `package-lock.json` and friends are gitignored to prevent drift.
+This project uses **pnpm**, not npm. Use `pnpm install`, `pnpm run <script>`, and `pnpm dlx <bin>` (not `npm`/`npx`/`yarn`/`bun`). The canonical lockfile is `pnpm-lock.yaml` — `package-lock.json`, `yarn.lock`, and `bun.lock` are gitignored to prevent drift.
 
 # Changelog
 

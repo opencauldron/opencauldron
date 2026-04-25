@@ -7,17 +7,17 @@ Thanks for your interest in contributing! This guide covers development setup, c
 ```bash
 git clone https://github.com/opencauldron/opencauldron.git
 cd opencauldron
-bun install
+pnpm install
 cp .env.example .env.local    # fill in required values
 docker compose up db -d        # start local Postgres
-bun run db:push                # create tables
-bun run dev
+pnpm run db:push               # create tables
+pnpm run dev
 ```
 
 ## Code Style
 
 - **TypeScript** — strict mode, no `any` unless unavoidable
-- **Formatting** — Prettier with Tailwind plugin (`bun run lint` to check)
+- **Formatting** — Prettier with Tailwind plugin (`pnpm run lint` to check)
 - **Components** — [shadcn/ui](https://ui.shadcn.com) built on Radix primitives
 - **Database** — [Drizzle ORM](https://orm.drizzle.team) with PostgreSQL
 - **Auth** — NextAuth.js v5 with Drizzle adapter
@@ -72,15 +72,15 @@ If your provider needs an API key, add the env var to `.env.example` with a comm
 ### 5. Test
 
 ```bash
-bun run lint
-bun run build
+pnpm run lint
+pnpm run build
 ```
 
 ## Pull Request Process
 
 1. Fork the repo and create a branch from `main`
 2. Make your changes
-3. Ensure `bun run build` passes
+3. Ensure `pnpm run build` passes
 4. Open a PR with a clear description of what changed and why
 5. A maintainer will review and merge
 

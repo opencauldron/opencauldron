@@ -27,11 +27,11 @@ The interactive wizard walks you through database, storage, and AI provider setu
 ```bash
 git clone https://github.com/opencauldron/opencauldron.git
 cd opencauldron
-bun install
+pnpm install
 cp .env.example .env.local    # then edit with your keys
 docker compose up db -d        # start local Postgres
-bun run db:push                # create tables
-bun run dev
+pnpm run db:push               # create tables
+pnpm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
@@ -47,7 +47,7 @@ docker compose up
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) (or Node.js 20+)
+- [Node.js 20+](https://nodejs.org) and [pnpm](https://pnpm.io)
 - [Docker](https://docker.com) (for local Postgres) or a [Neon](https://neon.tech) database
 - A [Google Cloud](https://console.cloud.google.com/apis/credentials) project for OAuth
 
@@ -147,13 +147,13 @@ Models without a configured API key are automatically hidden from the UI. Add ke
 
 ```bash
 # Push schema to database (development)
-bun run db:push
+pnpm run db:push
 
 # Generate and run migrations (production)
-bun run db:migrate
+pnpm run db:migrate
 
 # Open Drizzle Studio (visual DB browser)
-bun run db:studio
+pnpm run db:studio
 ```
 
 ## Project Structure
