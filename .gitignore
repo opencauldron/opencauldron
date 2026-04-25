@@ -1,9 +1,12 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
+# dependencies — project uses Bun, not npm/yarn/pnpm
 /node_modules
 /.pnp
 .pnp.*
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
 .yarn/*
 !.yarn/patches
 !.yarn/plugins
@@ -44,15 +47,23 @@ next-env.d.ts
 # local uploads
 /uploads/
 
-# internal docs
+# internal docs — deny everything in docs/, allow-list public ones below
 OPEN_SOURCE_SPEC.md
 /specs/
+docs/*
+!docs/CODE_OF_CONDUCT.md
+!docs/CONTRIBUTING.md
 
 # org-specific branding (local only, not committed to open source)
 public/logos/taboogrow.png
 
-# claude code local tooling
+# claude code local tooling — deny by default, allow-list shared skills
 .claude/agent-memory/
-.claude/skills/
+.claude/settings.local.json
+.claude/worktrees/
+.claude/agents/
+.claude/skills/*
+!.claude/skills/integrate-provider/
+!.claude/skills/update-changelog/
 /skills/
 skills-lock.json

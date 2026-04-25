@@ -1,0 +1,23 @@
+{
+  "skill_name": "integrate-provider",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I want to add Stability AI's SD3.5 model to the platform. They have a REST API at https://api.stability.ai — can you integrate it as an image provider with their medium and large variants?",
+      "expected_output": "Should fetch Stability AI API docs, create src/providers/stability.ts with sync image generation for sd3.5-medium and sd3.5-large variants, add model IDs to types, register in the registry with STABILITY_API_KEY env var, add to the Zod enum in the generate route, create test prompts and e2e test file, then run the tests.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Let's add Pika as a video provider. They have an async API where you submit a generation job and poll for the result. I have a PIKA_API_KEY ready to go.",
+      "expected_output": "Should research Pika's API, create src/providers/pika.ts with async generate() returning a jobId and getStatus() for polling, use the videoUrl pattern for completed results, register as a video provider, add to video section of the Zod enum, handle the full async lifecycle, and create appropriate video e2e tests.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Add DALL-E 3 support. It uses the OpenAI API format — POST to https://api.openai.com/v1/images/generations with a Bearer token. Returns base64 images. I want both dall-e-3 and dall-e-3-hd as variants.",
+      "expected_output": "Should create src/providers/dalle.ts following the sync image pattern (similar to Grok), with a factory function for the two variants, map aspect ratios to dimensions, decode base64 response, register with OPENAI_API_KEY in the registry, add both model IDs everywhere, and create/run e2e tests.",
+      "files": []
+    }
+  ]
+}

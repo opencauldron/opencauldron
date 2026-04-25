@@ -175,7 +175,7 @@ opencauldron/
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and how to add new AI model providers.
+See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for development setup, code style, and how to add new AI model providers.
 
 ## License
 

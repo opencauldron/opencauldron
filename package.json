@@ -10,7 +10,7 @@
   },
   "author": "OpenCauldron",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --port 9999",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
