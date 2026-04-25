@@ -1,0 +1,50 @@
+name: Bug report
+description: Report something that's broken or behaving unexpectedly
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report. Please fill out the sections below — the more detail, the faster we can fix it.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the bug.
+      placeholder: When I click X, Y happens instead of Z.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce this? Include URLs, inputs, and any setup needed.
+      placeholder: |
+        1. Go to ...
+        2. Click on ...
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen?
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Found in Help → About.
+      placeholder: "0.1.0"
+  - type: input
+    id: browser
+    attributes:
+      label: Browser / User agent
+      placeholder: "Mozilla/5.0 ..."
+  - type: input
+    id: url
+    attributes:
+      label: Page URL
+      description: The URL where the issue occurred.
+      placeholder: "https://..."
