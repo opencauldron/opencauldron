@@ -120,6 +120,26 @@ export const TEST_PROMPTS: Record<string, TestPromptConfig> = {
     timeoutMs: 45_000,
   },
 
+  // ── OpenAI ────────────────────────────────────────────────
+  "gpt-image-1.5": {
+    prompt:
+      "A radiant cauldron carved from polished onyx with veins of gold, sitting on a circle of glowing runes. Violet smoke rises in elegant tendrils, twisting into the shape of letters spelling OPEN CAULDRON. Sharp text rendering, photorealistic materials, soft volumetric lighting, dark background.",
+    aspectRatio: "1:1",
+    timeoutMs: 60_000,
+  },
+  "gpt-image-1": {
+    prompt:
+      "A bubbling copper cauldron in an apothecary's nook, surrounded by jars of dried herbs and crystal vials. Steam curls upward into wisps that almost look like tiny constellations. Warm candle light, painterly fantasy illustration with crisp focal subject.",
+    aspectRatio: "3:2",
+    timeoutMs: 60_000,
+  },
+  "gpt-image-1-mini": {
+    prompt:
+      "A minimalist sticker design of a smiling cauldron with bubbling purple potion, transparent background, bold outlines, kawaii style.",
+    aspectRatio: "1:1",
+    timeoutMs: 45_000,
+  },
+
   // ── Wan (fal.ai) ─────────────────────────────────────────
   "wan-2.1": {
     prompt:
