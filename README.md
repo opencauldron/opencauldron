@@ -179,4 +179,4 @@ See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for development setup, code style, a
 
 ## License
 
-[MIT](LICENSE)
+[Sustainable Use License v1.0](LICENSE) — free for internal business and non-commercial use; commercial redistribution requires a separate agreement.

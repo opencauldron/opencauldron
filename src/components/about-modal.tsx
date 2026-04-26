@@ -82,7 +82,7 @@ export function AboutModal({ open, onOpenChange }: AboutModalProps) {
               rel="noopener noreferrer"
               className="text-primary underline underline-offset-3 hover:text-primary/80"
             >
-              MIT
+              Sustainable Use License v1.0
             </a>
           </dd>
 

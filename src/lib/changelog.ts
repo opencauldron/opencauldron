@@ -6,6 +6,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-04-26",
+    title: "License updated to Sustainable Use License v1.0",
+    bullets: [
+      "OpenCauldron is now under the Sustainable Use License v1.0 (the same license used by n8n)",
+      "Free for your own internal business use, non-commercial use, and personal use",
+      "Free distribution permitted for non-commercial purposes",
+      "Commercial hosting as a competing service requires a separate agreement",
+    ],
+  },
+  {
     date: "2026-04-25",
     title: "OpenAI image models",
     bullets: [
