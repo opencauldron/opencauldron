@@ -7,6 +7,15 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-04-27",
+    title: "Brand kit panel on the generate page",
+    bullets: [
+      "See exactly what your brand kit will inject before you submit — prefix, suffix, banned terms, default LoRAs, anchor refs",
+      "Override toggle dims the panel and skips kit injection for one-off generations",
+      "Personal brands skip the panel; their kit is empty by design",
+    ],
+  },
+  {
+    date: "2026-04-27",
     title: "Drag-and-drop uploads",
     bullets: [
       "New Upload button in the gallery — drop existing photos or short videos straight in",

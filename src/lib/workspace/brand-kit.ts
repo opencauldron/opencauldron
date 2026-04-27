@@ -41,7 +41,7 @@ export class BannedTermError extends Error {
   }
 }
 
-interface KitRow {
+export interface KitRow {
   promptPrefix: string | null;
   promptSuffix: string | null;
   bannedTerms: string[];
@@ -98,8 +98,18 @@ export function matchBannedTerm(prompt: string, bannedTerms: string[]): string |
   return null;
 }
 
-export async function applyBrandKit(input: BrandKitInput): Promise<BrandKitOutput> {
-  const kit = await loadKit(input.brandId, input.workspaceId);
+/**
+ * Pure composer — given the user's intent + a kit row, produce the final
+ * values. Lifted out of `applyBrandKit` so the precedence matrix (FR-015 +
+ * FR-015a + FR-016) can be exercised without the DB round-trip.
+ *
+ * `kit === null` means "no kit loaded" — caller decides whether that's a
+ * 404 or a missing brand. We treat null the same as `override`: pass-through.
+ */
+export function composeKit(
+  input: BrandKitInput,
+  kit: KitRow | null
+): BrandKitOutput {
   const userLoras = input.loras ?? [];
   const userRefs = input.imageInput ?? [];
   const baseParams = { ...(input.parameters ?? {}) };
@@ -149,4 +159,9 @@ export async function applyBrandKit(input: BrandKitInput): Promise<BrandKitOutpu
     lorasFinal,
     brandKitOverridden: false,
   };
+}
+
+export async function applyBrandKit(input: BrandKitInput): Promise<BrandKitOutput> {
+  const kit = await loadKit(input.brandId, input.workspaceId);
+  return composeKit(input, kit);
 }
