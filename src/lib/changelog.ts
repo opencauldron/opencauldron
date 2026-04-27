@@ -7,6 +7,16 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-04-27",
+    title: "Drag-and-drop uploads",
+    bullets: [
+      "New Upload button in the gallery — drop existing photos or short videos straight in",
+      "Up to 50MB per file; supports PNG, JPEG, WebP, GIF, MP4, MOV, WebM",
+      "Uploads land as drafts on the brand you pick, ready for the review pipeline",
+      "Per-file progress with a cancel button — no surprise stuck uploads",
+    ],
+  },
+  {
+    date: "2026-04-27",
     title: "Gallery now scoped to your brands",
     bullets: [
       "Status badges on every tile — draft, in review, approved, rejected, archived",

@@ -38,6 +38,7 @@ import {
   Send,
   GitFork,
   Video,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
@@ -51,6 +52,10 @@ import {
   StatusBadge,
   type AssetStatus,
 } from "@/components/status-badge";
+import {
+  UploadDropzone,
+  type UploadedAsset,
+} from "@/components/upload-dropzone";
 
 const PROVIDER_LABELS: Record<string, string> = {
   google: "Gemini",
@@ -159,6 +164,11 @@ export function GalleryClient() {
 
   // Brands the current user can see (workspace-scoped via /api/brands).
   const [allBrands, setAllBrands] = useState<AssetBrand[]>([]);
+
+  // Upload dialog (T122) — brand picker + dropzone. Default brand prefers the
+  // current `brandFilter`, then falls back to the user's first brand.
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadBrandId, setUploadBrandId] = useState<string>("");
 
   useEffect(() => {
     fetch("/api/brands")
@@ -441,6 +451,49 @@ export function GalleryClient() {
     [allBrands, brandFilter]
   );
 
+  const handleUploaded = useCallback(
+    (uploaded: UploadedAsset) => {
+      const brand = allBrands.find((b) => b.id === uploaded.brandId) ?? null;
+      const fresh: GalleryAsset = {
+        id: uploaded.id,
+        userId: "",
+        brandId: uploaded.brandId,
+        status: uploaded.status,
+        parentAssetId: null,
+        mediaType: uploaded.mediaType,
+        model: "upload",
+        provider: "upload",
+        prompt: "",
+        enhancedPrompt: null,
+        parameters: null,
+        url: uploaded.url,
+        thumbnailUrl: uploaded.thumbnailUrl,
+        width: uploaded.width,
+        height: uploaded.height,
+        fileSize: uploaded.fileSize,
+        costEstimate: 0,
+        duration: null,
+        hasAudio: null,
+        createdAt: uploaded.createdAt,
+        brand: brand
+          ? { id: brand.id, name: brand.name, color: brand.color, isPersonal: brand.isPersonal }
+          : null,
+        brands: brand ? [brand] : [],
+        tags: [],
+        user: { name: null, email: null, image: null },
+      };
+      setAssets((prev) => [fresh, ...prev]);
+    },
+    [allBrands]
+  );
+
+  function openUpload() {
+    if (!uploadBrandId) {
+      setUploadBrandId(brandFilter || allBrands[0]?.id || "");
+    }
+    setUploadOpen(true);
+  }
+
   return (
     <div className="space-y-4">
       {/* Filter Bar */}
@@ -562,6 +615,18 @@ export function GalleryClient() {
             Clear
           </Button>
         )}
+
+        <div className="ml-auto">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={openUpload}
+            disabled={allBrands.length === 0}
+          >
+            <Upload className="size-3.5 mr-1" />
+            Upload
+          </Button>
+        </div>
       </div>
 
       {/* Loading State */}
@@ -974,6 +1039,57 @@ export function GalleryClient() {
               )}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Upload Dialog (T122) — brand picker + dropzone */}
+      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-5 w-5" />
+              Upload to gallery
+            </DialogTitle>
+            <DialogDescription>
+              Drop images or short videos here. Up to 50MB per file. New
+              uploads land as drafts on the brand you pick.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="upload-brand">Brand</Label>
+              <Select
+                value={uploadBrandId}
+                onValueChange={(v) => setUploadBrandId(v ?? "")}
+              >
+                <SelectTrigger id="upload-brand" className="w-full">
+                  <SelectValue placeholder="Select a brand…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allBrands.map((b) => (
+                    <SelectItem key={b.id} value={b.id}>
+                      <span className="flex items-center gap-2">
+                        <span
+                          className="inline-block h-2 w-2 rounded-full"
+                          style={{ backgroundColor: b.color }}
+                        />
+                        {b.name}
+                        {b.isPersonal && (
+                          <span className="ml-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                            personal
+                          </span>
+                        )}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <UploadDropzone
+              brandId={uploadBrandId || null}
+              onUploaded={handleUploaded}
+            />
+          </div>
         </DialogContent>
       </Dialog>
 
