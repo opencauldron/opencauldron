@@ -34,7 +34,7 @@ import {
 import { toast } from "sonner";
 import type { Brew, MyBrew } from "@/types";
 
-type BrewVisibility = "private" | "unlisted" | "public";
+type BrewVisibility = "private" | "unlisted" | "brand" | "public";
 
 // ---------------------------------------------------------------------------
 // Component

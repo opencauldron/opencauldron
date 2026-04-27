@@ -366,7 +366,7 @@ export interface Brew {
   previewUrl: string | null;
   imageInput: string[] | null;
   brandId: string | null;
-  visibility: "private" | "unlisted" | "public";
+  visibility: "private" | "unlisted" | "brand" | "public";
   slug: string | null;
   originalBrewId: string | null;
   originalUserId: string | null;
