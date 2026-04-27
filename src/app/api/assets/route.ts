@@ -8,7 +8,7 @@ import {
   brands,
   users,
 } from "@/lib/db/schema";
-import { getAssetUrl } from "@/lib/storage";
+import { getAssetUrl, refreshImageInputUrls } from "@/lib/storage";
 import { getCurrentWorkspace } from "@/lib/workspace/context";
 import {
   isWorkspaceAdmin,
@@ -197,6 +197,18 @@ export async function GET(req: NextRequest) {
           }
         : null;
 
+      // Re-sign any imageInput URLs captured at generation time so they don't
+      // 403 once their original presign expires.
+      const params = a.parameters as Record<string, unknown> | null;
+      const refreshedParams = params
+        ? {
+            ...params,
+            ...(params.imageInput
+              ? { imageInput: await refreshImageInputUrls(params.imageInput) }
+              : {}),
+          }
+        : params;
+
       return {
         id: a.id,
         userId: a.userId,
@@ -208,7 +220,7 @@ export async function GET(req: NextRequest) {
         provider: a.provider,
         prompt: a.prompt,
         enhancedPrompt: a.enhancedPrompt,
-        parameters: a.parameters,
+        parameters: refreshedParams,
         url,
         thumbnailUrl: thumbnailUrl ?? url,
         width: a.width,

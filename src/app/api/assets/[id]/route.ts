@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { assets, assetBrands, assetTags, brands, users } from "@/lib/db/schema";
-import { getAssetUrl, deleteFile } from "@/lib/storage";
+import { getAssetUrl, deleteFile, refreshImageInputUrls } from "@/lib/storage";
 import { canRead, loadRoleContext } from "@/lib/workspace/permissions";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -105,6 +105,18 @@ export async function GET(
       }
     : null;
 
+  // Re-sign any imageInput URLs so they don't 403 once their original presign
+  // expires (R2 signed URLs are 1-hour TTL).
+  const assetParams = asset.parameters as Record<string, unknown> | null;
+  const refreshedParams = assetParams
+    ? {
+        ...assetParams,
+        ...(assetParams.imageInput
+          ? { imageInput: await refreshImageInputUrls(assetParams.imageInput) }
+          : {}),
+      }
+    : assetParams;
+
   return NextResponse.json({
     asset: {
       id: asset.id,
@@ -117,7 +129,7 @@ export async function GET(
       provider: asset.provider,
       prompt: asset.prompt,
       enhancedPrompt: asset.enhancedPrompt,
-      parameters: asset.parameters,
+      parameters: refreshedParams,
       url,
       thumbnailUrl: thumbnailUrl ?? url,
       width: asset.width,
