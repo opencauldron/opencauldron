@@ -4,6 +4,16 @@ const envSchema = z.object({
   // Database
   DATABASE_URL: z.string().min(1),
 
+  // Workspace mode — hosted = SaaS multi-tenant; self_hosted = single-tenant Docker install.
+  // Drives bootstrap path, workspace switcher visibility (hidden in self_hosted), and feature flags.
+  WORKSPACE_MODE: z.enum(["hosted", "self_hosted"]).default("hosted"),
+
+  // Phase 2 collections / share-link surface — keep hidden in MVP.
+  FEATURE_SHARED_WITH_YOU: z
+    .union([z.literal("true"), z.literal("false")])
+    .default("false")
+    .transform((v) => v === "true"),
+
   // Auth
   NEXTAUTH_URL: z.string().url().optional(),
   NEXTAUTH_SECRET: z.string().min(1),
