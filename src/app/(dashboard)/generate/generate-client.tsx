@@ -54,6 +54,7 @@ import {
   ImagePlus,
 } from "lucide-react";
 import { toast } from "sonner";
+import { BrandSelector } from "@/components/brand-selector";
 import {
   Tooltip,
   TooltipTrigger,
@@ -107,6 +108,10 @@ interface BrandOption {
   id: string;
   name: string;
   color: string;
+  slug: string | null;
+  isPersonal: boolean;
+  ownerId: string | null;
+  videoEnabled: boolean;
 }
 
 /** Logo path per model card (variants share the parent's logo) */
@@ -228,9 +233,13 @@ export function GenerateClient({
   const [showModelSelector, setShowModelSelector] = useState(true);
   const [imageLoaded, setImageLoaded] = useState(false);
 
-  // Brands
+  // Brands (FR-007 / FR-027)
   const [brands, setBrands] = useState<BrandOption[]>([]);
   const [assetBrands, setAssetBrands] = useState<string[]>([]);
+  // Brand under which the next generation will be created (US2 / FR-004).
+  const [activeBrandId, setActiveBrandId] = useState<string | null>(null);
+  // Workspace-level video capability for the current user (FR-034).
+  const [canGenerateVideoForUser, setCanGenerateVideoForUser] = useState<boolean>(true);
 
   useEffect(() => {
     fetch("/api/brands")
@@ -239,7 +248,25 @@ export function GenerateClient({
         if (Array.isArray(data)) setBrands(data);
       })
       .catch(() => {});
+    fetch("/api/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && typeof data.canGenerateVideo === "boolean") {
+          setCanGenerateVideoForUser(data.canGenerateVideo);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  const activeBrand = brands.find((b) => b.id === activeBrandId) ?? null;
+  const videoTabDisabled =
+    !canGenerateVideoForUser ||
+    (!!activeBrand && !activeBrand.isPersonal && !activeBrand.videoEnabled);
+  const videoTabReason = !canGenerateVideoForUser
+    ? "Your workspace admin hasn't granted video access."
+    : activeBrand && !activeBrand.isPersonal && !activeBrand.videoEnabled
+    ? `Video generation is disabled for ${activeBrand.name}.`
+    : null;
 
   // Image input state (multi-reference, up to 4)
   const MAX_REFERENCE_IMAGES = 4;
@@ -580,6 +607,7 @@ export function GenerateClient({
         model: selectedModel,
         aspectRatio,
         style: style || undefined,
+        brandId: activeBrandId ?? "personal",
       };
 
       if (imageInputs.length > 0) body.imageInput = imageInputs;
@@ -834,7 +862,13 @@ export function GenerateClient({
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="video" className="flex-1 gap-1.5" disabled={videoModels.length === 0}>
+            <TabsTrigger
+              value="video"
+              className="flex-1 gap-1.5"
+              disabled={videoModels.length === 0 || videoTabDisabled}
+              title={videoTabReason ?? undefined}
+              aria-disabled={videoTabDisabled}
+            >
               <Video className="h-4 w-4" />
               Video
               {videoModels.length > 0 && (
@@ -845,6 +879,38 @@ export function GenerateClient({
             </TabsTrigger>
           </TabsList>
         </Tabs>
+
+        {/* Brand selector — generation is brand-locked at submit time (US2). */}
+        {brands.length > 0 && (
+          <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-card/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                Generating as
+              </span>
+              <span className="text-xs text-muted-foreground/80">
+                Brand kit (prefix, banned terms, default LoRA) applies on
+                submit. Toggle override below if needed.
+              </span>
+            </div>
+            <div className="w-full sm:w-[280px]">
+              <BrandSelector
+                brands={brands}
+                value={activeBrandId}
+                onChange={setActiveBrandId}
+              />
+            </div>
+          </div>
+        )}
+
+        {videoTabReason && isVideo && (
+          <div
+            role="alert"
+            className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-200/90"
+          >
+            <strong className="font-medium">Video unavailable.</strong>{" "}
+            {videoTabReason}
+          </div>
+        )}
 
         {/* Prompt Input */}
         <Card className="relative overflow-visible">

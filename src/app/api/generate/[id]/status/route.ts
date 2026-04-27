@@ -6,6 +6,7 @@ import { getProvider } from "@/providers/registry";
 import { downloadAndUploadVideo } from "@/lib/storage";
 import { eq, and } from "drizzle-orm";
 import type { ModelId } from "@/types";
+import { resolvePersonalBrandId } from "@/lib/workspace/personal";
 
 export async function GET(
   _req: NextRequest,
@@ -134,11 +135,22 @@ export async function GET(
         throw new Error("Provider returned completed but no video data");
       }
 
-      // Create asset
+      // Create asset. Recover the brandId stashed in generation.parameters by
+      // /api/generate; fall back to the user's Personal brand for legacy rows.
+      const stashedBrandId =
+        ((generation.parameters as Record<string, unknown>)?.brandId as string) ?? null;
+      const brandId = stashedBrandId ?? (await resolvePersonalBrandId(session.user.id));
+      const stashedOverride =
+        ((generation.parameters as Record<string, unknown>)?.brandKitOverridden as boolean) ?? false;
+
       const [asset] = await db
         .insert(assets)
         .values({
           userId: session.user.id,
+          brandId,
+          status: "draft",
+          source: "generation",
+          brandKitOverridden: stashedOverride,
           mediaType: "video",
           model: generation.model,
           provider: provider.provider,

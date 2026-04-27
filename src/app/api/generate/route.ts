@@ -1,14 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { generations, assets, users } from "@/lib/db/schema";
+import { brands, generations, assets, brandMembers, users } from "@/lib/db/schema";
 import { getProvider } from "@/providers/registry";
 import { uploadAsset } from "@/lib/storage";
-import { getXPReward, awardXP, getUserXP, hasVideoAccess, checkAndAwardBadges, getLevelFromXP } from "@/lib/xp";
+import { getXPReward, awardXP, checkAndAwardBadges } from "@/lib/xp";
 import { references } from "@/lib/db/schema";
 import { eq, and, gte, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { ModelId } from "@/types";
+import { getCurrentWorkspace } from "@/lib/workspace/context";
+import {
+  canCreateAsset,
+  canGenerateVideo as canGenerateVideoOnBrand,
+  loadBrandContext,
+  loadRoleContext,
+} from "@/lib/workspace/permissions";
+import { applyBrandKit, BannedTermError } from "@/lib/workspace/brand-kit";
+import { bootstrapHostedSignup } from "@/lib/workspace/bootstrap";
 
 const generateSchema = z.object({
   prompt: z.string().min(1).max(4000),
@@ -77,7 +86,54 @@ const generateSchema = z.object({
     triggerWords: z.array(z.string()).optional(),
   })).max(5).optional(),
   nsfwEnabled: z.boolean().optional(),
+  // Agency-DAM additions (FR-004 / FR-007 / FR-015 / FR-035).
+  // brandId is optional when the user wants their Personal brand — accepted
+  // either as the literal `"personal"` sentinel or omitted.
+  brandId: z.union([z.string().uuid(), z.literal("personal")]).optional(),
+  brandKitOverride: z.boolean().optional(),
 });
+
+/**
+ * Resolve the brand for this generation:
+ *   - explicit uuid → that brand (must be in the user's current workspace)
+ *   - "personal" sentinel or omitted → the user's Personal brand
+ * Returns 404 / 403 -shaped { error, status } object on denial.
+ */
+async function resolveBrand(
+  userId: string,
+  workspaceId: string,
+  hint: string | undefined
+): Promise<
+  | { ok: true; brandId: string }
+  | { ok: false; status: number; error: string }
+> {
+  if (hint && hint !== "personal") {
+    const [b] = await db
+      .select({ id: brands.id, workspaceId: brands.workspaceId })
+      .from(brands)
+      .where(eq(brands.id, hint))
+      .limit(1);
+    if (!b || b.workspaceId !== workspaceId) {
+      return { ok: false, status: 404, error: "brand_not_found" };
+    }
+    return { ok: true, brandId: b.id };
+  }
+  const [personal] = await db
+    .select({ id: brands.id })
+    .from(brands)
+    .where(
+      and(
+        eq(brands.workspaceId, workspaceId),
+        eq(brands.isPersonal, true),
+        eq(brands.ownerId, userId)
+      )
+    )
+    .limit(1);
+  if (personal) return { ok: true, brandId: personal.id };
+  // Lazy-create — covers users whose Personal brand was never bootstrapped.
+  const result = await bootstrapHostedSignup({ userId });
+  return { ok: true, brandId: result.personalBrandId };
+}
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -103,8 +159,41 @@ export async function POST(req: NextRequest) {
     seed, outputFormat, resolution, guidance, steps, cfgScale,
     renderingSpeed, personGeneration, watermark, promptEnhance, promptOptimizer, loop,
     duration, imageInput, audioEnabled, cameraControl,
-    loras, nsfwEnabled,
+    loras, nsfwEnabled, brandId: brandIdHint, brandKitOverride,
   } = parsed.data;
+
+  // ---- Workspace + brand resolution (FR-004 / FR-007) -----------------
+  const workspace = await getCurrentWorkspace(userId);
+  if (!workspace) {
+    return NextResponse.json({ error: "no_workspace" }, { status: 403 });
+  }
+
+  const resolvedBrand = await resolveBrand(userId, workspace.id, brandIdHint);
+  if (!resolvedBrand.ok) {
+    return NextResponse.json({ error: resolvedBrand.error }, { status: resolvedBrand.status });
+  }
+  const brandId = resolvedBrand.brandId;
+
+  const brandCtx = await loadBrandContext(brandId);
+  if (!brandCtx) {
+    return NextResponse.json({ error: "brand_not_found" }, { status: 404 });
+  }
+  const ctx = await loadRoleContext(userId, workspace.id);
+
+  // Personal-brand carve-out: every workspace member is implicitly a creator
+  // on their own Personal brand. The brand_member row exists post-bootstrap,
+  // but if it's missing we synthesize the membership in-memory so the
+  // permission helper passes — we don't want a missing row to lock a user
+  // out of their own scratch space.
+  if (brandCtx.isPersonal && brandCtx.ownerId === userId) {
+    if (!ctx.brandMemberships.has(brandId)) {
+      ctx.brandMemberships.set(brandId, "creator");
+    }
+  }
+
+  if (!canCreateAsset(ctx, brandCtx)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
 
   // Check rate limit
   const today = new Date();
@@ -150,17 +239,47 @@ export async function POST(req: NextRequest) {
     ? (provider.costPerSecond ?? 0) * (duration ?? 5)
     : provider.costPerImage;
 
-  // Check video access via XP level
+  // ---- Video gating (FR-034 / FR-035) — admin-controlled, not XP-earned -
   if (isVideo) {
-    const xpRecord = await getUserXP(userId);
-    if (!hasVideoAccess(xpRecord.level) && user?.role !== "admin") {
-      const lvl = getLevelFromXP(xpRecord.xp);
-      return NextResponse.json(
-        { error: `Video unlocks at Level 3 (Alchemist). You are Level ${lvl}.` },
-        { status: 403 }
-      );
+    const gate = canGenerateVideoOnBrand(ctx, brandCtx);
+    if (!gate.allowed) {
+      return NextResponse.json({ error: gate.code }, { status: 403 });
     }
   }
+
+  // ---- Brand-kit injection (FR-015 / FR-015a / FR-016) ------------------
+  let kitResult;
+  try {
+    kitResult = await applyBrandKit({
+      workspaceId: workspace.id,
+      brandId,
+      prompt,
+      parameters: null,
+      imageInput,
+      loras: loras?.map((l) => l.path),
+      override: !!brandKitOverride,
+    });
+  } catch (err) {
+    if (err instanceof BannedTermError) {
+      return NextResponse.json(
+        { error: "banned_term", matchedTerm: err.matchedTerm },
+        { status: 400 }
+      );
+    }
+    throw err;
+  }
+  // The original user prompt stays as `assets.prompt` for transparency.
+  // The kit-injected prompt becomes `enhancedPrompt` (overrides any prior
+  // Mistral-enhanced value when the kit added prefix/suffix).
+  const promptForProvider = kitResult.brandKitOverridden
+    ? (enhancedPrompt || prompt)
+    : kitResult.promptFinal;
+  const enhancedPromptForRecord = kitResult.brandKitOverridden
+    ? enhancedPrompt
+    : kitResult.promptFinal;
+  const imageInputFinal = kitResult.imageInputFinal.length > 0
+    ? kitResult.imageInputFinal
+    : imageInput;
 
   const xpReward = getXPReward(model as ModelId, isVideo ? "video" : "image", duration);
 
@@ -171,13 +290,15 @@ export async function POST(req: NextRequest) {
       userId,
       model,
       prompt,
-      enhancedPrompt,
+      enhancedPrompt: enhancedPromptForRecord ?? null,
       parameters: {
         aspectRatio, style, negativePrompt, quality,
         seed, outputFormat, resolution, guidance, steps, cfgScale,
         renderingSpeed, personGeneration, watermark, promptEnhance, promptOptimizer, loop,
-        duration, imageInput, audioEnabled, cameraControl,
+        duration, imageInput: imageInputFinal, audioEnabled, cameraControl,
         loras, nsfwEnabled,
+        brandId,
+        brandKitOverridden: kitResult.brandKitOverridden,
       },
       status: "processing",
       costEstimate,
@@ -189,12 +310,12 @@ export async function POST(req: NextRequest) {
   if (isVideo) {
     try {
       const result = await provider.generate({
-        prompt: enhancedPrompt || prompt,
+        prompt: promptForProvider,
         model: model as ModelId,
         aspectRatio,
         duration,
         resolution,
-        imageInput,
+        imageInput: imageInputFinal,
         audioEnabled,
         cameraControl,
         seed,
@@ -229,8 +350,8 @@ export async function POST(req: NextRequest) {
       const newBadges = await checkAndAwardBadges(userId);
 
       // Increment reference usage count
-      if (imageInput && imageInput.length > 0) {
-        for (const url of imageInput) {
+      if (imageInputFinal && imageInputFinal.length > 0) {
+        for (const url of imageInputFinal) {
           db.update(references)
             .set({ usageCount: sql`${references.usageCount} + 1` })
             .where(eq(references.r2Url, url))
@@ -242,6 +363,8 @@ export async function POST(req: NextRequest) {
         generationId: generation.id,
         status: "processing",
         mediaType: "video",
+        brandId,
+        brandKitOverridden: kitResult.brandKitOverridden,
         xpEarned: xpReward,
         ...(user?.role === "admin" ? { costEstimate } : {}),
         ...(newBadges.length > 0 ? { newBadges } : {}),
@@ -264,7 +387,7 @@ export async function POST(req: NextRequest) {
   try {
     const startTime = Date.now();
     const result = await provider.generate({
-      prompt: enhancedPrompt || prompt,
+      prompt: promptForProvider,
       model: model as ModelId,
       aspectRatio,
       style,
@@ -282,7 +405,7 @@ export async function POST(req: NextRequest) {
       promptEnhance,
       loras,
       nsfwEnabled,
-      imageInput,
+      imageInput: imageInputFinal,
     });
     const durationMs = Date.now() - startTime;
 
@@ -305,21 +428,27 @@ export async function POST(req: NextRequest) {
     // Upload to R2
     const uploaded = await uploadAsset(result.imageBuffer, userId);
 
-    // Create asset record
+    // Create asset record. brandId is set; status defaults to draft (FR-010);
+    // source = generation; brandKitOverridden tracks whether the kit was
+    // skipped (FR-016). Mutation guard at the DB level lives in transitions.ts.
     const [asset] = await db
       .insert(assets)
       .values({
         userId,
+        brandId,
+        status: "draft",
+        source: "generation",
+        brandKitOverridden: kitResult.brandKitOverridden,
         mediaType: "image",
         model,
         provider: provider.provider,
         prompt,
-        enhancedPrompt,
+        enhancedPrompt: enhancedPromptForRecord ?? null,
         parameters: {
           aspectRatio, style, negativePrompt, quality,
           seed, outputFormat, resolution, guidance, steps, cfgScale,
           renderingSpeed, personGeneration, watermark, promptEnhance,
-          loras, nsfwEnabled, imageInput,
+          loras, nsfwEnabled, imageInput: imageInputFinal,
         },
         r2Key: uploaded.key,
         r2Url: uploaded.url,
@@ -346,8 +475,8 @@ export async function POST(req: NextRequest) {
     const newBadges = await checkAndAwardBadges(userId);
 
     // Increment reference usage count
-    if (imageInput && imageInput.length > 0) {
-      for (const url of imageInput) {
+    if (imageInputFinal && imageInputFinal.length > 0) {
+      for (const url of imageInputFinal) {
         db.update(references)
           .set({ usageCount: sql`${references.usageCount} + 1` })
           .where(eq(references.r2Url, url))
@@ -358,6 +487,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       generationId: generation.id,
       mediaType: "image",
+      brandId,
+      brandKitOverridden: kitResult.brandKitOverridden,
+      status: "draft",
       xpEarned: xpReward,
       leveledUp: xpResult.leveledUp ? xpResult.newLevel : undefined,
       asset: {

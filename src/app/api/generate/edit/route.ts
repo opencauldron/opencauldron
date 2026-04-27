@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { assets } from "@/lib/db/schema";
 import { uploadAsset } from "@/lib/storage";
+import { resolvePersonalBrandId } from "@/lib/workspace/personal";
 import { z } from "zod";
 import { editGrokImage } from "@/providers/grok";
 import { remixIdeogramImage } from "@/providers/ideogram";
@@ -61,11 +62,15 @@ export async function POST(req: NextRequest) {
     }
 
     const uploaded = await uploadAsset(result.imageBuffer, userId);
+    const brandId = await resolvePersonalBrandId(userId);
 
     const [asset] = await db
       .insert(assets)
       .values({
         userId,
+        brandId,
+        status: "draft",
+        source: "generation",
         mediaType: "image",
         model: "grok-imagine" as ModelId,
         provider,
