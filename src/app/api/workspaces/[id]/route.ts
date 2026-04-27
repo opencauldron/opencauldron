@@ -6,7 +6,26 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { loadRoleContext, isWorkspaceAdmin, isWorkspaceOwner } from "@/lib/workspace/permissions";
 
-const patchSchema = z.object({ name: z.string().min(1).max(100) });
+const patchSchema = z
+  .object({
+    name: z.string().min(1).max(80).optional(),
+    slug: z
+      .string()
+      .min(1)
+      .max(80)
+      .regex(/^[a-z0-9-]+$/, "slug must be kebab-case")
+      .optional(),
+    logoUrl: z
+      .string()
+      .url()
+      .max(2048)
+      .nullable()
+      .optional()
+      .or(z.literal("").transform(() => null)),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "At least one field is required",
+  });
 
 export async function GET(
   _req: NextRequest,
@@ -39,12 +58,27 @@ export async function PATCH(
       { status: 400 }
     );
   }
-  const [updated] = await db
-    .update(workspaces)
-    .set({ name: parsed.data.name })
-    .where(eq(workspaces.id, id))
-    .returning();
-  return NextResponse.json(updated);
+  const updates: Partial<{ name: string; slug: string; logoUrl: string | null }> = {};
+  if (parsed.data.name !== undefined) updates.name = parsed.data.name;
+  if (parsed.data.slug !== undefined) updates.slug = parsed.data.slug;
+  if (parsed.data.logoUrl !== undefined) updates.logoUrl = parsed.data.logoUrl;
+
+  try {
+    const [updated] = await db
+      .update(workspaces)
+      .set(updates)
+      .where(eq(workspaces.id, id))
+      .returning();
+    return NextResponse.json(updated);
+  } catch (error) {
+    if (error instanceof Error && error.message.toLowerCase().includes("unique")) {
+      return NextResponse.json(
+        { error: "That slug is already taken." },
+        { status: 409 }
+      );
+    }
+    throw error;
+  }
 }
 
 export async function DELETE(
@@ -56,7 +90,7 @@ export async function DELETE(
   const { id } = await params;
   const ctx = await loadRoleContext(session.user.id, id);
   if (!isWorkspaceOwner(ctx)) {
-    return NextResponse.json({ error: "Only the workspace owner can delete the workspace" }, { status: 403 });
+    return NextResponse.json({ error: "Only the studio owner can delete the studio" }, { status: 403 });
   }
   await db.delete(workspaces).where(eq(workspaces.id, id));
   return NextResponse.json({ success: true });

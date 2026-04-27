@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { assets, brandMembers, brands } from "@/lib/db/schema";
+import { assets, brandMembers, brands, users } from "@/lib/db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getCurrentWorkspace } from "@/lib/workspace/context";
 import { loadRoleContext, canCreateBrand } from "@/lib/workspace/permissions";
+import { getAssetUrl } from "@/lib/storage";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -36,44 +37,50 @@ export async function GET() {
 
   // Workspace owner/admin sees every brand in the workspace; others only the
   // brands they have a brand_members row on (FR-027 / sidebar plan).
+  // We left-join `users` to surface the personal-brand owner's avatar so the
+  // BrandMark can fall back to it without a second round-trip.
+  const baseSelect = {
+    id: brands.id,
+    name: brands.name,
+    slug: brands.slug,
+    color: brands.color,
+    isPersonal: brands.isPersonal,
+    ownerId: brands.ownerId,
+    videoEnabled: brands.videoEnabled,
+    selfApprovalAllowed: brands.selfApprovalAllowed,
+    createdBy: brands.createdBy,
+    createdAt: brands.createdAt,
+    logoR2Key: brands.logoR2Key,
+    ownerImage: users.image,
+    assetCount: sql<number>`(SELECT count(*)::int FROM ${assets} WHERE ${assets.brandId} = ${brands.id})`,
+  } as const;
+
   const rows = adminOverride
     ? await db
-        .select({
-          id: brands.id,
-          name: brands.name,
-          slug: brands.slug,
-          color: brands.color,
-          isPersonal: brands.isPersonal,
-          ownerId: brands.ownerId,
-          videoEnabled: brands.videoEnabled,
-          selfApprovalAllowed: brands.selfApprovalAllowed,
-          createdBy: brands.createdBy,
-          createdAt: brands.createdAt,
-          assetCount: sql<number>`(SELECT count(*)::int FROM ${assets} WHERE ${assets.brandId} = ${brands.id})`,
-        })
+        .select(baseSelect)
         .from(brands)
+        .leftJoin(users, eq(users.id, brands.ownerId))
         .where(eq(brands.workspaceId, workspace.id))
         .orderBy(brands.name)
     : await db
-        .select({
-          id: brands.id,
-          name: brands.name,
-          slug: brands.slug,
-          color: brands.color,
-          isPersonal: brands.isPersonal,
-          ownerId: brands.ownerId,
-          videoEnabled: brands.videoEnabled,
-          selfApprovalAllowed: brands.selfApprovalAllowed,
-          createdBy: brands.createdBy,
-          createdAt: brands.createdAt,
-          assetCount: sql<number>`(SELECT count(*)::int FROM ${assets} WHERE ${assets.brandId} = ${brands.id})`,
-        })
+        .select(baseSelect)
         .from(brands)
         .innerJoin(brandMembers, eq(brandMembers.brandId, brands.id))
+        .leftJoin(users, eq(users.id, brands.ownerId))
         .where(and(eq(brands.workspaceId, workspace.id), eq(brandMembers.userId, session.user.id)))
         .orderBy(brands.name);
 
-  return NextResponse.json(rows);
+  // Re-resolve logo keys to fresh signed URLs. Done in parallel — typically a
+  // handful of brands per workspace, so the cost is trivial.
+  const enriched = await Promise.all(
+    rows.map(async (r) => {
+      const logoUrl = r.logoR2Key ? await getAssetUrl(r.logoR2Key) : null;
+      const { logoR2Key: _omit, ...rest } = r;
+      return { ...rest, logoUrl };
+    })
+  );
+
+  return NextResponse.json(enriched);
 }
 
 export async function POST(req: NextRequest) {
@@ -82,11 +89,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const workspace = await getCurrentWorkspace(session.user.id);
-  if (!workspace) return NextResponse.json({ error: "No workspace" }, { status: 400 });
+  if (!workspace) return NextResponse.json({ error: "No studio" }, { status: 400 });
 
   const ctx = await loadRoleContext(session.user.id, workspace.id);
   if (!canCreateBrand(ctx)) {
-    return NextResponse.json({ error: "Only workspace admins can create brands" }, { status: 403 });
+    return NextResponse.json({ error: "Only studio admins can create brands" }, { status: 403 });
   }
 
   const body = await req.json().catch(() => ({}));
@@ -123,7 +130,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     if (error instanceof Error && error.message.includes("unique")) {
       return NextResponse.json(
-        { error: "A brand with that name or slug already exists in this workspace" },
+        { error: "A brand with that name or slug already exists in this studio" },
         { status: 409 }
       );
     }

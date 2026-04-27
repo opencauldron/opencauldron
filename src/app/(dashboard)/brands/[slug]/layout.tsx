@@ -14,13 +14,15 @@ import { notFound, redirect } from "next/navigation";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { brands } from "@/lib/db/schema";
+import { brands, users } from "@/lib/db/schema";
 import { getCurrentWorkspace } from "@/lib/workspace/context";
 import {
   isBrandManager,
   isBrandMember,
   loadRoleContext,
 } from "@/lib/workspace/permissions";
+import { getAssetUrl } from "@/lib/storage";
+import { BrandMark } from "@/components/brand-mark";
 import { BrandTabs } from "./brand-tabs";
 
 interface BrandShellProps {
@@ -43,18 +45,22 @@ export default async function BrandShellLayout({
 
   // Personal-brand sentinel — the slug "personal" resolves dynamically per
   // user (FR-006).
+  const brandSelect = {
+    id: brands.id,
+    name: brands.name,
+    slug: brands.slug,
+    color: brands.color,
+    isPersonal: brands.isPersonal,
+    ownerId: brands.ownerId,
+    logoR2Key: brands.logoR2Key,
+    ownerImage: users.image,
+  } as const;
   const [brand] =
     slug === "personal"
       ? await db
-          .select({
-            id: brands.id,
-            name: brands.name,
-            slug: brands.slug,
-            color: brands.color,
-            isPersonal: brands.isPersonal,
-            ownerId: brands.ownerId,
-          })
+          .select(brandSelect)
           .from(brands)
+          .leftJoin(users, eq(users.id, brands.ownerId))
           .where(
             and(
               eq(brands.workspaceId, workspace.id),
@@ -64,21 +70,16 @@ export default async function BrandShellLayout({
           )
           .limit(1)
       : await db
-          .select({
-            id: brands.id,
-            name: brands.name,
-            slug: brands.slug,
-            color: brands.color,
-            isPersonal: brands.isPersonal,
-            ownerId: brands.ownerId,
-          })
+          .select(brandSelect)
           .from(brands)
+          .leftJoin(users, eq(users.id, brands.ownerId))
           .where(
             and(eq(brands.workspaceId, workspace.id), eq(brands.slug, slug))
           )
           .limit(1);
 
   if (!brand) notFound();
+  const logoUrl = brand.logoR2Key ? await getAssetUrl(brand.logoR2Key) : null;
 
   const ctx = await loadRoleContext(userId, workspace.id);
 
@@ -93,10 +94,14 @@ export default async function BrandShellLayout({
     <div className="space-y-6">
       <header className="space-y-2">
         <div className="flex items-center gap-3">
-          <span
-            className="inline-block h-3 w-3 rounded-full"
-            style={{ backgroundColor: brand.color }}
-            aria-hidden
+          <BrandMark
+            brand={{
+              name: brand.name,
+              color: brand.color,
+              isPersonal: brand.isPersonal,
+              logoUrl,
+            }}
+            size="lg"
           />
           <h1 className="text-2xl font-bold tracking-tight">{brand.name}</h1>
           {brand.isPersonal && (

@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
   }
   if (env.WORKSPACE_MODE === "self_hosted") {
     return NextResponse.json(
-      { error: "Workspace creation disabled in self-hosted mode" },
+      { error: "Studio creation disabled in self-hosted mode" },
       { status: 403 }
     );
   }

@@ -87,6 +87,8 @@ export const workspaces = pgTable("workspaces", {
     .default("hosted"),
   // Workspace-wide default LoRA. Brand-default wins; this is the fallback.
   defaultLoraId: text("default_lora_id"),
+  // Optional studio logo URL — surfaced in the sidebar / studio settings.
+  logoUrl: text("logo_url"),
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -152,6 +154,10 @@ export const brands = pgTable(
       .default(false),
     // FR-034: per-brand video kill switch (default true so brands ship enabled).
     videoEnabled: boolean("video_enabled").notNull().default(true),
+
+    // Brand logo — storage key, not a URL. Resolved on read so signed URLs
+    // never go stale (mirrors how assets store r2Key).
+    logoR2Key: text("logo_r2_key"),
 
     // Personal brand carve-out (FR-006/006a/006b)
     isPersonal: boolean("is_personal").notNull().default(false),

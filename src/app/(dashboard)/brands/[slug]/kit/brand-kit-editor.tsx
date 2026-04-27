@@ -6,14 +6,16 @@
  * `/api/brands/[id]`. Brand_manager+ can edit; others see a read-only view.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Loader2, X } from "lucide-react";
+import { Loader2, X, Upload, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { BrandMark } from "@/components/brand-mark";
 
 interface BrandSummary {
   id: string;
@@ -26,6 +28,8 @@ interface BrandSummary {
   videoEnabled: boolean;
   selfApprovalAllowed: boolean;
   isPersonal: boolean;
+  logoUrl: string | null;
+  ownerImage: string | null;
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/;
@@ -37,6 +41,7 @@ export function BrandKitEditor({
   brand: BrandSummary;
   canEdit: boolean;
 }) {
+  const router = useRouter();
   const [color, setColor] = useState(brand.color);
   const [promptPrefix, setPromptPrefix] = useState(brand.promptPrefix ?? "");
   const [promptSuffix, setPromptSuffix] = useState(brand.promptSuffix ?? "");
@@ -49,8 +54,70 @@ export function BrandKitEditor({
   );
   const [saving, setSaving] = useState(false);
 
+  const [logoUrl, setLogoUrl] = useState<string | null>(brand.logoUrl);
+  const [logoBusy, setLogoBusy] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
   const disabled = !canEdit;
   const colorValid = HEX_RE.test(color);
+
+  async function handleLogoFile(file: File) {
+    if (!file) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      toast.error("Use a PNG, JPG, or WebP image");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Logo must be under 2 MB");
+      return;
+    }
+    setLogoBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`/api/brands/${brand.id}/logo`, {
+        method: "POST",
+        body: fd,
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(body.error ?? "Upload failed");
+        return;
+      }
+      setLogoUrl(body.logoUrl);
+      toast.success("Logo updated");
+      // Refresh server components (sidebar, brand layout header) so they
+      // reflect the new logo without a full reload.
+      router.refresh();
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setLogoBusy(false);
+      if (logoInputRef.current) logoInputRef.current.value = "";
+    }
+  }
+
+  async function handleLogoRemove() {
+    if (!canEdit) return;
+    setLogoBusy(true);
+    try {
+      const res = await fetch(`/api/brands/${brand.id}/logo`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast.error(body.error ?? "Failed to remove logo");
+        return;
+      }
+      setLogoUrl(null);
+      toast.success("Logo removed");
+      router.refresh();
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setLogoBusy(false);
+    }
+  }
 
   function addBannedTerm() {
     const term = bannedTermDraft.trim();
@@ -102,9 +169,71 @@ export function BrandKitEditor({
     <div className="max-w-2xl space-y-6">
       {!canEdit && (
         <p className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200/90">
-          Read-only view — only brand managers and workspace admins can edit
+          Read-only view — only brand managers and studio admins can edit
           the kit.
         </p>
+      )}
+
+      {/* Logo — personal brands always use the owner avatar, so we hide the
+          uploader for them. */}
+      {!brand.isPersonal && (
+        <section className="space-y-2">
+          <Label>Logo</Label>
+          <div className="flex items-center gap-4">
+            <BrandMark
+              brand={{
+                name: brand.name,
+                color,
+                isPersonal: brand.isPersonal,
+                logoUrl,
+              }}
+              size="xl"
+            />
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={disabled || logoBusy}
+                >
+                  {logoBusy ? (
+                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Upload className="mr-1 h-3.5 w-3.5" />
+                  )}
+                  {logoUrl ? "Replace" : "Upload"}
+                </Button>
+                {logoUrl && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleLogoRemove}
+                    disabled={disabled || logoBusy}
+                  >
+                    <Trash2 className="mr-1 h-3.5 w-3.5" />
+                    Remove
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Square PNG or WebP works best. Max 2 MB.
+              </p>
+            </div>
+            <input
+              ref={logoInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleLogoFile(file);
+              }}
+            />
+          </div>
+        </section>
       )}
 
       <section className="space-y-2">

@@ -56,6 +56,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { BrandSelector } from "@/components/brand-selector";
+import { BrandMark } from "@/components/brand-mark";
 import {
   Tooltip,
   TooltipTrigger,
@@ -113,6 +114,8 @@ interface BrandOption {
   isPersonal: boolean;
   ownerId: string | null;
   videoEnabled: boolean;
+  logoUrl?: string | null;
+  ownerImage?: string | null;
 }
 
 /** Logo path per model card (variants share the parent's logo) */
@@ -318,7 +321,7 @@ export function GenerateClient({
     !canGenerateVideoForUser ||
     (!!activeBrand && !activeBrand.isPersonal && !activeBrand.videoEnabled);
   const videoTabReason = !canGenerateVideoForUser
-    ? "Your workspace admin hasn't granted video access."
+    ? "Your studio admin hasn't granted video access."
     : activeBrand && !activeBrand.isPersonal && !activeBrand.videoEnabled
     ? `Video generation is disabled for ${activeBrand.name}.`
     : null;
@@ -977,10 +980,7 @@ export function GenerateClient({
             <div className="flex items-start justify-between gap-3">
               <div className="flex flex-col gap-0.5">
                 <span className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                  <span
-                    className="inline-block h-2 w-2 rounded-full"
-                    style={{ backgroundColor: activeBrand.color }}
-                  />
+                  <BrandMark brand={activeBrand} size="xs" />
                   {activeBrand.name} brand kit{" "}
                   <span className="text-muted-foreground/60 normal-case tracking-normal">
                     {brandKitOverride ? "— overridden" : "— applies on submit"}

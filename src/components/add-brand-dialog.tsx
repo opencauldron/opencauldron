@@ -87,7 +87,7 @@ export function AddBrandDialog({ open, onOpenChange, onAdded }: Props) {
         const data = await res.json().catch(() => ({}));
         setServerError(typeof data?.error === "string" ? data.error : "Invalid input.");
       } else if (res.status === 403) {
-        setServerError("Only workspace admins can create brands.");
+        setServerError("Only studio admins can create brands.");
       } else {
         setServerError("Something went wrong. Please try again.");
       }
@@ -108,7 +108,7 @@ export function AddBrandDialog({ open, onOpenChange, onAdded }: Props) {
               Add brand
             </DialogTitle>
             <DialogDescription>
-              Create a new brand workspace. You can configure the brand kit later.
+              Create a new brand inside your studio. You can configure the brand kit later.
             </DialogDescription>
           </DialogHeader>
 

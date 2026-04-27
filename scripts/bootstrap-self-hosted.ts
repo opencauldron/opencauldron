@@ -35,13 +35,13 @@ async function ask(question: string, defaultValue?: string): Promise<string> {
 async function main() {
   const existing = await db.select().from(workspaces).limit(1);
   if (existing[0]) {
-    console.log(`Workspace already exists: ${existing[0].name} (slug: ${existing[0].slug}).`);
+    console.log(`Studio already exists: ${existing[0].name} (slug: ${existing[0].slug}).`);
     console.log("Self-hosted bootstrap is a one-time operation. Exiting.");
     return;
   }
 
   const workspaceName =
-    process.env.WORKSPACE_NAME ?? (await ask("Workspace name", "My Agency"));
+    process.env.WORKSPACE_NAME ?? (await ask("Studio name", "My Studio"));
   const adminEmail =
     process.env.ADMIN_EMAIL ?? (await ask("Admin email"));
   if (!adminEmail) {
@@ -72,7 +72,7 @@ async function main() {
   });
 
   console.log(
-    `\n✓ Bootstrap complete.\n  Workspace: ${workspaceName} (${result.workspaceSlug})\n  Admin: ${adminEmail}\n  Personal brand: ${result.personalBrandId}\n`
+    `\n✓ Bootstrap complete.\n  Studio: ${workspaceName} (${result.workspaceSlug})\n  Admin: ${adminEmail}\n  Personal brand: ${result.personalBrandId}\n`
   );
 }
 

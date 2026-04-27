@@ -9,12 +9,13 @@ import { notFound, redirect } from "next/navigation";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { brands } from "@/lib/db/schema";
+import { brands, users } from "@/lib/db/schema";
 import { getCurrentWorkspace } from "@/lib/workspace/context";
 import {
   isBrandManager,
   loadRoleContext,
 } from "@/lib/workspace/permissions";
+import { getAssetUrl } from "@/lib/storage";
 import { BrandKitEditor } from "./brand-kit-editor";
 
 export default async function BrandKitPage({
@@ -51,6 +52,17 @@ export default async function BrandKitPage({
   const ctx = await loadRoleContext(session.user.id, ws.id);
   const canEdit = isBrandManager(ctx, brand.id);
 
+  const logoUrl = brand.logoR2Key ? await getAssetUrl(brand.logoR2Key) : null;
+  let ownerImage: string | null = null;
+  if (brand.isPersonal && brand.ownerId) {
+    const [u] = await db
+      .select({ image: users.image })
+      .from(users)
+      .where(eq(users.id, brand.ownerId))
+      .limit(1);
+    ownerImage = u?.image ?? null;
+  }
+
   return (
     <BrandKitEditor
       brand={{
@@ -64,6 +76,8 @@ export default async function BrandKitPage({
         videoEnabled: brand.videoEnabled,
         selfApprovalAllowed: brand.selfApprovalAllowed,
         isPersonal: brand.isPersonal,
+        logoUrl,
+        ownerImage,
       }}
       canEdit={canEdit}
     />

@@ -22,6 +22,7 @@ export interface CurrentWorkspace {
   name: string;
   slug: string;
   mode: "hosted" | "self_hosted";
+  logoUrl: string | null;
 }
 
 export async function getCurrentWorkspace(
@@ -35,6 +36,7 @@ export async function getCurrentWorkspace(
       name: ws[0].name,
       slug: ws[0].slug,
       mode: ws[0].mode as "hosted" | "self_hosted",
+      logoUrl: ws[0].logoUrl ?? null,
     };
   }
 
@@ -44,6 +46,7 @@ export async function getCurrentWorkspace(
       name: workspaces.name,
       slug: workspaces.slug,
       mode: workspaces.mode,
+      logoUrl: workspaces.logoUrl,
     })
     .from(workspaceMembers)
     .innerJoin(workspaces, eq(workspaces.id, workspaceMembers.workspaceId))
@@ -98,12 +101,14 @@ function mapToCurrent(row: {
   name: string;
   slug: string;
   mode: string;
+  logoUrl: string | null;
 }): CurrentWorkspace {
   return {
     id: row.id,
     name: row.name,
     slug: row.slug,
     mode: row.mode as "hosted" | "self_hosted",
+    logoUrl: row.logoUrl,
   };
 }
 

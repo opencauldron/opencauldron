@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { brands, workspaceMembers } from "@/lib/db/schema";
+import { brands, users, workspaceMembers } from "@/lib/db/schema";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -10,6 +10,7 @@ import {
   canEditBrandKit,
   canDeleteBrand,
 } from "@/lib/workspace/permissions";
+import { getAssetUrl } from "@/lib/storage";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -35,13 +36,21 @@ export async function GET(
   const session = await auth();
   if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
-  const [brand] = await db.select().from(brands).where(eq(brands.id, id)).limit(1);
-  if (!brand) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const [row] = await db
+    .select({ brand: brands, ownerImage: users.image })
+    .from(brands)
+    .leftJoin(users, eq(users.id, brands.ownerId))
+    .where(eq(brands.id, id))
+    .limit(1);
+  if (!row) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const { brand, ownerImage } = row;
 
   if (!brand.workspaceId) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const ctx = await loadRoleContext(session.user.id, brand.workspaceId);
   if (!ctx.workspace) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json(brand);
+
+  const logoUrl = brand.logoR2Key ? await getAssetUrl(brand.logoR2Key) : null;
+  return NextResponse.json({ ...brand, logoUrl, ownerImage });
 }
 
 export async function PATCH(
@@ -82,7 +91,7 @@ export async function PATCH(
   } catch (error) {
     if (error instanceof Error && error.message.includes("unique")) {
       return NextResponse.json(
-        { error: "Name or slug collision in this workspace" },
+        { error: "Name or slug collision in this studio" },
         { status: 409 }
       );
     }

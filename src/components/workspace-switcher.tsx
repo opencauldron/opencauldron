@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * Workspace switcher (T136). Mounts inside the sidebar header next to the
- * org logo. Renders the current workspace's name; the dropdown trigger is
+ * Studio switcher (T136). Mounts inside the sidebar header next to the
+ * org logo. Renders the current studio's name; the dropdown trigger is
  * gated to hosted mode + multi-membership users (everyone else sees a
- * read-only pill so the chrome stays consistent).
+ * click-through row to /settings/studio so the chrome has a purpose).
  *
  * Switching writes the cookie consumed by `getCurrentWorkspace` and
  * full-reloads `/overview` so every server component re-resolves tenant
@@ -12,6 +12,7 @@
  */
 
 import { useState } from "react";
+import Link from "next/link";
 import { Check, ChevronsUpDown, Plus, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ export interface Workspace {
   name: string;
   slug: string;
   role: "owner" | "admin" | "member";
+  logoUrl?: string | null;
 }
 
 interface Props {
@@ -53,19 +55,24 @@ export function WorkspaceSwitcher({ current, memberships, mode }: Props) {
   const canSwitch = mode === "hosted" && memberships.length >= 2;
   const canManage = current.role === "owner" || current.role === "admin";
 
-  // Read-only chrome for self-hosted or single-membership users.
+  // Single-studio chrome (the common case in self-hosted single-tenant
+  // installs). Make it a real link to /settings/studio so the click has a
+  // purpose; non-admins still get the row but the page renders a polite
+  // forbidden state for them.
   if (!canSwitch) {
     return (
-      <div
+      <Link
+        href="/settings/studio"
         data-slot="workspace-switcher"
-        className="flex h-8 items-center gap-2 rounded-md px-2 text-sm group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
-        aria-label={`Workspace: ${current.name}`}
+        className="flex h-8 items-center gap-2 rounded-md px-2 text-sm transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
+        aria-label={`Studio: ${current.name} — open studio settings`}
+        title={canManage ? "Open studio settings" : "Studio info"}
       >
         <WorkspaceDot name={current.name} />
         <span className="truncate font-medium group-data-[collapsible=icon]:hidden">
           {current.name}
         </span>
-      </div>
+      </Link>
     );
   }
 
@@ -77,7 +84,7 @@ export function WorkspaceSwitcher({ current, memberships, mode }: Props) {
             variant="ghost"
             size="sm"
             role="combobox"
-            aria-label="Switch workspace"
+            aria-label="Switch studio"
             aria-expanded={open}
             data-slot="workspace-switcher"
             className="h-8 w-full justify-between gap-2 px-2 font-medium group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:w-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0"
@@ -95,10 +102,10 @@ export function WorkspaceSwitcher({ current, memberships, mode }: Props) {
 
       <PopoverContent className="w-[260px] p-0" align="start">
         <Command>
-          <CommandInput placeholder="Search workspaces…" />
+          <CommandInput placeholder="Search studios…" />
           <CommandList>
-            <CommandEmpty>No workspace found.</CommandEmpty>
-            <CommandGroup heading="Workspaces">
+            <CommandEmpty>No studio found.</CommandEmpty>
+            <CommandGroup heading="Studios">
               {memberships.map((ws) => (
                 <CommandItem
                   key={ws.id}
@@ -122,13 +129,13 @@ export function WorkspaceSwitcher({ current, memberships, mode }: Props) {
                 <CommandSeparator />
                 <CommandGroup>
                   <CommandItem
-                    value="manage-workspaces"
+                    value="manage-studio"
                     onSelect={() => {
-                      window.location.assign("/workspaces");
+                      window.location.assign("/settings/studio");
                     }}
                   >
                     <Settings className="size-3.5" />
-                    <span className="ml-2 flex-1">Manage workspaces</span>
+                    <span className="ml-2 flex-1">Studio settings</span>
                     <Plus className="size-3.5 opacity-60" />
                   </CommandItem>
                 </CommandGroup>
@@ -148,8 +155,8 @@ function switchWorkspace(nextId: string, currentId: string) {
 }
 
 /**
- * Tiny avatar dot — first letter of the workspace name on a tinted bg
- * derived from the name so two workspaces don't look identical at a glance.
+ * Tiny avatar dot — first letter of the studio name on a tinted bg
+ * derived from the name so two studios don't look identical at a glance.
  */
 function WorkspaceDot({ name }: { name: string }) {
   const initial = name.trim().charAt(0).toUpperCase() || "?";

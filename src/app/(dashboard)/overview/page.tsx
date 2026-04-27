@@ -310,10 +310,10 @@ function NoWorkspaceState() {
     <div className="flex min-h-[400px] flex-col items-center justify-center text-center">
       <Inbox className="mb-3 size-10 text-muted-foreground/50" />
       <h1 className="font-heading text-2xl font-semibold tracking-tight">
-        No workspace yet
+        No studio yet
       </h1>
       <p className="mt-1 max-w-md text-sm text-muted-foreground">
-        You aren&apos;t a member of any workspace yet. Ask an admin to invite
+        You aren&apos;t a member of any studio yet. Ask an admin to invite
         you, or contact support to get started.
       </p>
     </div>

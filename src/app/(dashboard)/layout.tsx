@@ -9,6 +9,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { env } from "@/lib/env";
 import { getCurrentWorkspace, listUserWorkspaces } from "@/lib/workspace/context";
 import { loadRoleContext, isWorkspaceAdmin } from "@/lib/workspace/permissions";
+import { getAssetUrl } from "@/lib/storage";
 
 export default async function DashboardLayout({
   children,
@@ -43,33 +44,29 @@ export default async function DashboardLayout({
     color: string;
     isPersonal: boolean;
     ownerId: string | null;
+    logoUrl: string | null;
   }> = [];
   let canCreateBrandFlag = false;
   if (workspace) {
     const ctx = await loadRoleContext(userId, workspace.id);
     canCreateBrandFlag = isWorkspaceAdmin(ctx);
-    sidebarBrands = isWorkspaceAdmin(ctx)
+    const baseSelect = {
+      id: brands.id,
+      name: brands.name,
+      slug: brands.slug,
+      color: brands.color,
+      isPersonal: brands.isPersonal,
+      ownerId: brands.ownerId,
+      logoR2Key: brands.logoR2Key,
+    } as const;
+    const rawRows = isWorkspaceAdmin(ctx)
       ? await db
-          .select({
-            id: brands.id,
-            name: brands.name,
-            slug: brands.slug,
-            color: brands.color,
-            isPersonal: brands.isPersonal,
-            ownerId: brands.ownerId,
-          })
+          .select(baseSelect)
           .from(brands)
           .where(eq(brands.workspaceId, workspace.id))
           .orderBy(brands.name)
       : await db
-          .select({
-            id: brands.id,
-            name: brands.name,
-            slug: brands.slug,
-            color: brands.color,
-            isPersonal: brands.isPersonal,
-            ownerId: brands.ownerId,
-          })
+          .select(baseSelect)
           .from(brands)
           .innerJoin(brandMembers, eq(brandMembers.brandId, brands.id))
           .where(
@@ -79,6 +76,17 @@ export default async function DashboardLayout({
             )
           )
           .orderBy(brands.name);
+    sidebarBrands = await Promise.all(
+      rawRows.map(async (r) => ({
+        id: r.id,
+        name: r.name,
+        slug: r.slug,
+        color: r.color,
+        isPersonal: r.isPersonal,
+        ownerId: r.ownerId,
+        logoUrl: r.logoR2Key ? await getAssetUrl(r.logoR2Key) : null,
+      }))
+    );
   }
 
   const cookieStore = await cookies();
@@ -95,6 +103,7 @@ export default async function DashboardLayout({
                   id: workspace.id,
                   name: workspace.name,
                   slug: workspace.slug,
+                  logoUrl: workspace.logoUrl,
                   role: (memberships.find((m) => m.id === workspace.id)?.role ??
                     "member") as "owner" | "admin" | "member",
                 },

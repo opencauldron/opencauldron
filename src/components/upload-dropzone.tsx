@@ -27,7 +27,7 @@ const ALLOWED_TYPES = [
 const SERVER_ERRORS: Record<string, string> = {
   file_too_large: "File too large (server)",
   unsupported_type: "Unsupported type",
-  no_workspace: "No workspace",
+  no_workspace: "No studio",
   forbidden: "Not allowed for this brand",
   brand_not_found: "Brand not found",
   personal_brand_missing: "Personal brand missing",

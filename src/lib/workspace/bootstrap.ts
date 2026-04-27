@@ -80,7 +80,7 @@ export async function bootstrapHostedSignup(input: {
   userId: string;
   preferredName?: string;
 }): Promise<BootstrapResult> {
-  const name = input.preferredName?.trim() || "My Workspace";
+  const name = input.preferredName?.trim() || "My Studio";
   return runBootstrap({
     userId: input.userId,
     name,
@@ -94,7 +94,7 @@ export async function bootstrapSelfHosted(input: {
 }): Promise<BootstrapResult> {
   return runBootstrap({
     userId: input.userId,
-    name: input.workspaceName.trim() || "My Agency",
+    name: input.workspaceName.trim() || "My Studio",
     mode: "self_hosted",
   });
 }

@@ -179,7 +179,7 @@ export function ReviewClient() {
       ) : !hasBrands ? (
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            You aren&apos;t a brand manager on any brand yet. Ask a workspace
+            You aren&apos;t a brand manager on any brand yet. Ask a studio
             admin to add you.
           </CardContent>
         </Card>

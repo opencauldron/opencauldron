@@ -40,7 +40,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       try {
         await bootstrapHostedSignup({
           userId: user.id,
-          preferredName: user.name ? `${user.name}'s Workspace` : undefined,
+          preferredName: user.name ? `${user.name}'s Studio` : undefined,
         });
       } catch (err) {
         console.error("bootstrapHostedSignup failed", err);

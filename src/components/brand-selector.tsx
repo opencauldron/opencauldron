@@ -18,6 +18,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
+import { BrandMark } from "@/components/brand-mark";
 
 const STORAGE_KEY = "agency-mvp:last-brand-id";
 
@@ -29,6 +30,8 @@ export interface BrandOption {
   isPersonal: boolean;
   ownerId: string | null;
   videoEnabled: boolean;
+  logoUrl?: string | null;
+  ownerImage?: string | null;
 }
 
 interface Props {
@@ -106,10 +109,14 @@ export function BrandSelector({
           >
             {selected ? (
               <span className="flex items-center gap-2 truncate">
-                <span
-                  className="size-2.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: selected.color }}
-                  aria-hidden
+                <BrandMark
+                  brand={{
+                    name: selected.name,
+                    color: selected.color,
+                    isPersonal: selected.isPersonal,
+                    logoUrl: selected.logoUrl,
+                  }}
+                  size="sm"
                 />
                 <span className="truncate">{selected.name}</span>
                 {selected.isPersonal && (
@@ -170,10 +177,15 @@ function Row({
 }) {
   return (
     <CommandItem value={brand.name} onSelect={() => onPick(brand.id)}>
-      <span
-        className="mr-2 size-2.5 rounded-full"
-        style={{ backgroundColor: brand.color }}
-        aria-hidden
+      <BrandMark
+        brand={{
+          name: brand.name,
+          color: brand.color,
+          isPersonal: brand.isPersonal,
+          logoUrl: brand.logoUrl,
+        }}
+        size="sm"
+        className="mr-2"
       />
       <span className="flex-1 truncate">{brand.name}</span>
       {icon}

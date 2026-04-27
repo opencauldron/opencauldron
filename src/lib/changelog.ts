@@ -7,6 +7,15 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-04-27",
+    title: "Workspaces are now Studios",
+    bullets: [
+      "Renamed Workspace to Studio across the app — same thing, friendlier name",
+      "New Studio settings page at /settings/studio for renaming, changing the slug, or pinning a logo URL",
+      "The sidebar studio row now clicks straight through to Studio settings",
+    ],
+  },
+  {
+    date: "2026-04-27",
     title: "Campaigns",
     bullets: [
       "Group assets by initiative — create campaigns under any brand from /brands/[slug]/campaigns",
