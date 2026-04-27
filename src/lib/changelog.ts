@@ -7,6 +7,15 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-04-27",
+    title: "Move assets between brands",
+    bullets: [
+      "Asset detail panel now has a 'Move to brand…' action so a miscategorized asset can be reassigned to the correct brand",
+      "Available to the asset's creator, brand managers on the source brand, and workspace admins — approved assets must still be forked, not moved",
+      "Moving an asset resets its status to draft so the new brand's reviewers can vet it",
+    ],
+  },
+  {
+    date: "2026-04-27",
     title: "Workspaces are now Studios",
     bullets: [
       "Renamed Workspace to Studio across the app — same thing, friendlier name",

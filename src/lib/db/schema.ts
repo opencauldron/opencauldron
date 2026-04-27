@@ -379,7 +379,8 @@ export const assetReviewLog = pgTable(
         "archived",
         "unarchived",
         "forked",
-        "moved_from_personal",
+        "moved_from_personal", // dead but retained for historical rows
+        "moved_brand",
       ],
     }).notNull(),
     fromStatus: text("from_status", {

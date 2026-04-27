@@ -38,7 +38,8 @@ export type LogAction =
   | "archived"
   | "unarchived"
   | "forked"
-  | "moved_from_personal";
+  | "moved_from_personal"
+  | "moved_brand";
 
 export const ALLOWED_TRANSITIONS: Record<
   TransitionAction,
@@ -135,7 +136,7 @@ export async function transitionAsset(
   return { assetId: input.assetId, fromStatus, toStatus: rule.to };
 }
 
-/** Record a non-status audit event (e.g. forked, moved_from_personal). */
+/** Record a non-status audit event (e.g. forked, moved_brand). */
 export async function logReviewEvent(input: {
   assetId: string;
   actorId: string;

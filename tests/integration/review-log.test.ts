@@ -60,11 +60,13 @@ describe("review-log invariants — illegal transitions never emit a row", () =>
   }
 });
 
-describe("review-log invariants — fork & moved_from_personal use the audit log", () => {
-  // `forked` and `moved_from_personal` are non-status events — they don't
-  // come through `validateTransition`, but they are part of the LogAction
-  // union and the routes write them via `logReviewEvent`. The contract is
-  // simply that the union covers every case the routes can emit.
+describe("review-log invariants — fork & moved_brand use the audit log", () => {
+  // `forked`, `moved_from_personal`, and `moved_brand` are non-status events —
+  // they don't come through `validateTransition`, but they are part of the
+  // LogAction union and the routes write them via `logReviewEvent`. The
+  // contract is simply that the union covers every case the routes can emit.
+  // `moved_from_personal` is retained for historical rows; new moves write
+  // `moved_brand` from `/api/assets/[id]/reassign-brand`.
   const allLogActions: LogAction[] = [
     "submitted",
     "approved",
@@ -73,9 +75,10 @@ describe("review-log invariants — fork & moved_from_personal use the audit log
     "unarchived",
     "forked",
     "moved_from_personal",
+    "moved_brand",
   ];
   it("LogAction union covers every emitted value", () => {
     const inferredKeys = new Set<LogAction>(allLogActions);
-    expect(inferredKeys.size).toBe(7);
+    expect(inferredKeys.size).toBe(8);
   });
 });

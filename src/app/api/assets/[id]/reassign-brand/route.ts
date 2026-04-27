@@ -1,11 +1,18 @@
 /**
- * POST /api/assets/[id]/move-to-brand — Personal → real-brand promotion (T149a / FR-006c).
+ * POST /api/assets/[id]/reassign-brand — move a single asset between brands.
  *
- * Source asset MUST live on a Personal brand owned by the caller. Destination
- * MUST be a non-Personal brand in the same workspace where the caller has
- * Creator+. Promotion is in-place: same `assets.id`, `brandId` updates,
- * `status` resets to `draft`, audit row written with `action='moved_from_personal'`.
- * No R2 file duplication, no fork (per OQ-005 resolution).
+ * Permission gate (source):
+ *   - asset creator (`assets.user_id = me`)
+ *   - `brand_manager` on source brand
+ *   - workspace `owner`/`admin`
+ *
+ * Permission gate (destination): caller must be `creator+` on the destination
+ * (`canCreateAsset`); destination must be a non-Personal brand in the same
+ * workspace and different from source.
+ *
+ * Hard block: approved assets cannot be moved (FR-011 immutability) — caller
+ * must fork first. On success, status resets to `draft` so the destination
+ * brand's reviewers can vet the asset under their own standards.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -14,6 +21,8 @@ import { db } from "@/lib/db";
 import { assets, brands } from "@/lib/db/schema";
 import {
   canCreateAsset,
+  isBrandManager,
+  isWorkspaceAdmin,
   loadBrandContext,
   loadRoleContext,
 } from "@/lib/workspace/permissions";
@@ -55,7 +64,6 @@ export async function POST(
       sourceBrandId: assets.brandId,
       sourceWorkspaceId: brands.workspaceId,
       sourceIsPersonal: brands.isPersonal,
-      sourceOwnerId: brands.ownerId,
     })
     .from(assets)
     .innerJoin(brands, eq(brands.id, assets.brandId))
@@ -65,27 +73,45 @@ export async function POST(
   if (!row) {
     return NextResponse.json({ error: "asset_not_found" }, { status: 404 });
   }
-  if (row.assetUserId !== userId) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
-  if (!row.sourceIsPersonal) {
+  if (row.assetStatus === "approved") {
     return NextResponse.json(
-      { error: "source_not_personal" },
+      { error: "approved_immutable_fork_required" },
       { status: 409 }
     );
   }
-  if (row.sourceOwnerId !== userId) {
-    // Defensive — Personal brand owner mismatch shouldn't be reachable.
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!row.sourceWorkspaceId || !row.sourceBrandId) {
+    return NextResponse.json(
+      { error: "source_workspace_missing" },
+      { status: 500 }
+    );
   }
-  if (!row.sourceWorkspaceId) {
-    return NextResponse.json({ error: "source_workspace_missing" }, { status: 500 });
+  if (row.sourceBrandId === targetBrandId) {
+    return NextResponse.json(
+      { error: "target_same_as_source" },
+      { status: 400 }
+    );
+  }
+
+  // Source permission gate. We need source-side role context; the destination
+  // gate uses a separate context only if the destination is in another
+  // workspace (which we then reject anyway), so source ctx is enough here.
+  const sourceCtx = await loadRoleContext(userId, row.sourceWorkspaceId);
+  const isCreatorOfAsset = row.assetUserId === userId;
+  const sourceAllowed =
+    isCreatorOfAsset ||
+    isBrandManager(sourceCtx, row.sourceBrandId) ||
+    isWorkspaceAdmin(sourceCtx);
+  if (!sourceAllowed) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   // Load destination brand + check it's in the same workspace + non-Personal.
   const destCtx = await loadBrandContext(targetBrandId);
   if (!destCtx) {
-    return NextResponse.json({ error: "target_brand_not_found" }, { status: 404 });
+    return NextResponse.json(
+      { error: "target_brand_not_found" },
+      { status: 404 }
+    );
   }
   if (destCtx.workspaceId !== row.sourceWorkspaceId) {
     return NextResponse.json(
@@ -100,15 +126,14 @@ export async function POST(
     );
   }
 
-  // Permission gate on destination.
-  const ctx = await loadRoleContext(userId, destCtx.workspaceId);
-  if (!canCreateAsset(ctx, destCtx)) {
+  // Destination permission gate — must be creator+ on destination.
+  if (!canCreateAsset(sourceCtx, destCtx)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  // Two-step: update assets, then write audit row. Neon HTTP driver doesn't
-  // support db.transaction, so on log failure we leave the audit gap rather
-  // than rolling back the move (the move itself is the user-facing effect).
+  // Two-step write — Neon HTTP driver lacks db.transaction. The asset update is
+  // the user-facing effect; on audit-log failure we accept the audit gap rather
+  // than rolling back the move.
   await db
     .update(assets)
     .set({ brandId: targetBrandId, status: "draft", updatedAt: new Date() })
@@ -117,7 +142,7 @@ export async function POST(
   await logReviewEvent({
     assetId,
     actorId: userId,
-    action: "moved_from_personal",
+    action: "moved_brand",
     fromStatus: row.assetStatus as
       | "draft"
       | "in_review"

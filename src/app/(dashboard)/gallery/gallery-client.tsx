@@ -39,6 +39,7 @@ import {
   GitFork,
   Video,
   Upload,
+  ArrowRightLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
@@ -56,6 +57,7 @@ import {
   UploadDropzone,
   type UploadedAsset,
 } from "@/components/upload-dropzone";
+import { BrandMark } from "@/components/brand-mark";
 
 const PROVIDER_LABELS: Record<string, string> = {
   google: "Gemini",
@@ -78,6 +80,8 @@ interface AssetBrand {
   name: string;
   color: string;
   isPersonal?: boolean;
+  logoUrl?: string | null;
+  ownerImage?: string | null;
 }
 
 interface AssetUser {
@@ -144,7 +148,16 @@ const MEDIA_TYPE_OPTIONS = [
 // Main Gallery Component
 // -------------------------------------------------------------------
 
-export function GalleryClient() {
+interface GalleryClientProps {
+  /**
+   * When set, the brand filter is locked to this id: the brand selector is
+   * hidden, the URL no longer carries `?brand=`, and Clear-filters keeps it.
+   * Used by /brands/[slug]/gallery so the brand layout's tab nav stays visible.
+   */
+  lockedBrandId?: string;
+}
+
+export function GalleryClient({ lockedBrandId }: GalleryClientProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [assets, setAssets] = useState<GalleryAsset[]>([]);
@@ -170,11 +183,33 @@ export function GalleryClient() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadBrandId, setUploadBrandId] = useState<string>("");
 
+  // Reassign-brand inline picker (asset detail panel). Server is the source of
+  // truth on permissions; this advisory state just hides the action when the
+  // caller has no chance of succeeding.
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [reassignTargetBrandId, setReassignTargetBrandId] = useState("");
+  const [reassigning, setReassigning] = useState(false);
+  const [me, setMe] = useState<{
+    userId: string | null;
+    role: "owner" | "admin" | "member" | null;
+    brandRoles: Record<string, "brand_manager" | "creator" | "viewer">;
+  }>({ userId: null, role: null, brandRoles: {} });
+
   useEffect(() => {
     fetch("/api/brands")
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) setAllBrands(data);
+      })
+      .catch(() => {});
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((data) => {
+        setMe({
+          userId: data?.userId ?? null,
+          role: data?.role ?? null,
+          brandRoles: data?.brandRoles ?? {},
+        });
       })
       .catch(() => {});
   }, []);
@@ -192,7 +227,7 @@ export function GalleryClient() {
     () => (searchParams.get("status") as AssetStatus | null) ?? ""
   );
   const [brandFilter, setBrandFilter] = useState<string>(
-    () => searchParams.get("brand") ?? ""
+    () => lockedBrandId ?? searchParams.get("brand") ?? ""
   );
   const [searchQuery, setSearchQuery] = useState(
     () => searchParams.get("search") ?? ""
@@ -209,7 +244,7 @@ export function GalleryClient() {
     if (modelFilter) next.set("model", modelFilter);
     if (mediaTypeFilter) next.set("mediaType", mediaTypeFilter);
     if (statusFilter) next.set("status", statusFilter);
-    if (brandFilter) next.set("brand", brandFilter);
+    if (brandFilter && !lockedBrandId) next.set("brand", brandFilter);
     if (searchQuery.trim()) next.set("search", searchQuery.trim());
     if (dateFrom) next.set("from", dateFrom);
     if (dateTo) next.set("to", dateTo);
@@ -397,6 +432,108 @@ export function GalleryClient() {
     }
   };
 
+  const isAdmin = me.role === "owner" || me.role === "admin";
+
+  /** Brands the caller is `creator+` on (admin override sees every brand). */
+  const reassignDestinations = useMemo(() => {
+    if (!selectedAsset) return [] as AssetBrand[];
+    return allBrands.filter((b) => {
+      if (b.isPersonal) return false;
+      if (b.id === selectedAsset.brandId) return false;
+      if (isAdmin) return true;
+      const role = me.brandRoles[b.id];
+      return role === "brand_manager" || role === "creator";
+    });
+  }, [allBrands, isAdmin, me.brandRoles, selectedAsset]);
+
+  /** Server-side is authoritative; this only hides the button when there's no
+   *  chance the call would succeed. */
+  const canReassignSelected = useMemo(() => {
+    if (!selectedAsset) return false;
+    if (selectedAsset.status === "approved") return false;
+    if (!selectedAsset.brandId) return false;
+    if (selectedAsset.userId && me.userId && selectedAsset.userId === me.userId) {
+      return true;
+    }
+    if (isAdmin) return true;
+    return me.brandRoles[selectedAsset.brandId] === "brand_manager";
+  }, [isAdmin, me.brandRoles, me.userId, selectedAsset]);
+
+  async function handleReassign() {
+    if (!selectedAsset || !reassignTargetBrandId) return;
+    setReassigning(true);
+    try {
+      const res = await fetch(`/api/assets/${selectedAsset.id}/reassign-brand`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ brandId: reassignTargetBrandId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const map: Record<string, string> = {
+          approved_immutable_fork_required:
+            "Approved assets must be forked, not moved.",
+          target_must_be_real_brand: "Personal brands can't be a destination.",
+          target_same_as_source: "Asset is already on that brand.",
+          cross_workspace_move_forbidden:
+            "Can't move assets between workspaces.",
+          forbidden: "You don't have permission to move this asset.",
+          asset_not_found: "Asset no longer exists.",
+          target_brand_not_found: "Destination brand no longer exists.",
+        };
+        toast.error(map[body.error] ?? `Couldn't move: ${body.error ?? res.statusText}`);
+        return;
+      }
+      const targetBrand = allBrands.find((b) => b.id === reassignTargetBrandId);
+      const brandStub: AssetBrand | null = targetBrand
+        ? {
+            id: targetBrand.id,
+            name: targetBrand.name,
+            color: targetBrand.color,
+            isPersonal: targetBrand.isPersonal,
+          }
+        : null;
+      toast.success(`Moved to ${targetBrand?.name ?? "brand"}.`);
+      setAssets((prev) =>
+        prev.map((a) =>
+          a.id === selectedAsset.id
+            ? {
+                ...a,
+                brandId: reassignTargetBrandId,
+                status: "draft",
+                brand: brandStub,
+                brands: brandStub ? [brandStub] : [],
+              }
+            : a
+        )
+      );
+      setSelectedAsset((prev) =>
+        prev && prev.id === selectedAsset.id
+          ? {
+              ...prev,
+              brandId: reassignTargetBrandId,
+              status: "draft",
+              brand: brandStub,
+              brands: brandStub ? [brandStub] : [],
+            }
+          : prev
+      );
+      // /brands/[slug]/gallery locks the brand filter — when we move OUT of
+      // that brand, the asset would disappear on next refetch anyway. Drop it
+      // now so the grid stays coherent.
+      if (lockedBrandId && reassignTargetBrandId !== lockedBrandId) {
+        setAssets((prev) => prev.filter((a) => a.id !== selectedAsset.id));
+        setSelectedAsset(null);
+      }
+      setReassignOpen(false);
+      setReassignTargetBrandId("");
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setReassigning(false);
+    }
+  }
+
   const handleFork = async (asset: GalleryAsset) => {
     try {
       const res = await fetch(`/api/assets/${asset.id}/fork`, {
@@ -432,7 +569,7 @@ export function GalleryClient() {
     !!modelFilter ||
     !!mediaTypeFilter ||
     !!statusFilter ||
-    !!brandFilter ||
+    (!!brandFilter && !lockedBrandId) ||
     !!searchQuery ||
     !!dateFrom ||
     !!dateTo;
@@ -440,7 +577,7 @@ export function GalleryClient() {
     setModelFilter("");
     setMediaTypeFilter("");
     setStatusFilter("");
-    setBrandFilter("");
+    if (!lockedBrandId) setBrandFilter("");
     setSearchQuery("");
     setDateFrom("");
     setDateTo("");
@@ -535,7 +672,7 @@ export function GalleryClient() {
           </Select>
         </div>
 
-        {allBrands.length > 0 && (
+        {allBrands.length > 0 && !lockedBrandId && (
           <div className="w-44">
             <Select
               value={brandFilter}
@@ -549,10 +686,7 @@ export function GalleryClient() {
                 {allBrands.map((b) => (
                   <SelectItem key={b.id} value={b.id}>
                     <span className="flex items-center gap-2">
-                      <span
-                        className="inline-block h-2 w-2 rounded-full"
-                        style={{ backgroundColor: b.color }}
-                      />
+                      <BrandMark brand={b} size="xs" />
                       {b.name}
                     </span>
                   </SelectItem>
@@ -704,41 +838,130 @@ export function GalleryClient() {
       <Dialog
         open={!!selectedAsset}
         onOpenChange={(open) => {
-          if (!open) setSelectedAsset(null);
+          if (!open) {
+            setSelectedAsset(null);
+            setReassignOpen(false);
+            setReassignTargetBrandId("");
+          }
         }}
       >
         {selectedAsset && (
-          <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
+          <DialogContent className="sm:max-w-6xl h-[92vh] max-h-[920px] flex flex-col gap-0 p-0 overflow-hidden">
+            <DialogHeader className="px-6 py-4 border-b shrink-0 pr-12">
               <DialogTitle>Asset Details</DialogTitle>
               <DialogDescription>
                 Generated with {getModelLabel(selectedAsset.model)}
               </DialogDescription>
             </DialogHeader>
 
-            <div className="grid gap-6 md:grid-cols-[1fr_300px]">
-              {/* Media */}
-              <div className="relative aspect-auto min-h-[300px] overflow-hidden rounded-lg bg-muted">
+            <div className="grid flex-1 min-h-0 md:grid-cols-[minmax(0,1fr)_340px]">
+              {/* Media — fills available space; image scales to its own aspect
+                  ratio via object-contain. No fixed min-height, so when the
+                  image is short-and-wide we don't get dark padding above/below. */}
+              <div className="relative flex items-center justify-center overflow-hidden bg-muted/40">
                 {selectedAsset.mediaType === "video" ? (
                   <video
                     src={selectedAsset.url}
                     controls
                     autoPlay
                     muted
-                    className="h-full w-full object-contain rounded-lg"
+                    className="max-h-full max-w-full object-contain"
                   />
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={selectedAsset.url}
                     alt={selectedAsset.prompt}
-                    className="h-full w-full object-contain"
+                    className="max-h-full max-w-full object-contain"
                   />
                 )}
               </div>
 
-              {/* Metadata Panel */}
-              <div className="space-y-4">
+              {/* Metadata Panel — scrolls independently so the image stays
+                  fully visible no matter how much metadata there is.
+                  Order: identity → context → state → content → details. */}
+              <div className="space-y-4 overflow-y-auto border-t md:border-t-0 md:border-l p-6">
+                {/* Creator — identity at the top, with avatar */}
+                <div className="flex items-center gap-3">
+                  <Avatar className="h-9 w-9">
+                    <AvatarImage src={selectedAsset.user.image ?? undefined} />
+                    <AvatarFallback className="text-xs">
+                      {selectedAsset.user.name?.charAt(0)?.toUpperCase() ?? "?"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">
+                      {selectedAsset.user.name ?? selectedAsset.user.email ?? "Unknown"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(selectedAsset.createdAt).toLocaleDateString(
+                        undefined,
+                        {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        }
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Brand — ownership context */}
+                {selectedAsset.brand && (
+                  <div>
+                    <span
+                      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium"
+                      style={{
+                        backgroundColor: `${selectedAsset.brand.color}20`,
+                        borderColor: `${selectedAsset.brand.color}60`,
+                        color: selectedAsset.brand.color,
+                      }}
+                    >
+                      <BrandMark brand={selectedAsset.brand} size="xs" />
+                      {selectedAsset.brand.name}
+                      {selectedAsset.brand.isPersonal ? " (Personal)" : ""}
+                    </span>
+                  </div>
+                )}
+
+                {/* Status + Model + Provider — state badges */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {selectedAsset.status && (
+                    <StatusBadge status={selectedAsset.status} size="md" />
+                  )}
+                  <Badge variant="secondary">
+                    {getModelLabel(selectedAsset.model)}
+                  </Badge>
+                  <Badge variant="outline">{PROVIDER_LABELS[selectedAsset.provider] ?? selectedAsset.provider}</Badge>
+                  {selectedAsset.mediaType === "video" && (
+                    <Badge variant="outline" className="gap-1">
+                      <Video className="size-3" />
+                      Video
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Video-only metadata sits with the badges */}
+                {selectedAsset.mediaType === "video" && (selectedAsset.duration || selectedAsset.hasAudio) && (
+                  <div className="flex gap-3">
+                    {selectedAsset.duration && (
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                        <Clock className="size-3.5" />
+                        {selectedAsset.duration}s
+                      </div>
+                    )}
+                    {selectedAsset.hasAudio && (
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                        <Volume2 className="size-3.5" />
+                        Audio
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Prompt — main content */}
                 <div>
                   <h4 className="text-sm font-medium text-muted-foreground mb-1">
                     Prompt
@@ -758,62 +981,6 @@ export function GalleryClient() {
                     </p>
                   </div>
                 )}
-
-                <div className="flex flex-wrap items-center gap-2">
-                  {selectedAsset.status && (
-                    <StatusBadge status={selectedAsset.status} size="md" />
-                  )}
-                  <Badge variant="secondary">
-                    {getModelLabel(selectedAsset.model)}
-                  </Badge>
-                  <Badge variant="outline">{PROVIDER_LABELS[selectedAsset.provider] ?? selectedAsset.provider}</Badge>
-                  {selectedAsset.mediaType === "video" && (
-                    <Badge variant="outline" className="gap-1">
-                      <Video className="size-3" />
-                      Video
-                    </Badge>
-                  )}
-                </div>
-
-                {/* Video metadata */}
-                {selectedAsset.mediaType === "video" && (
-                  <div className="flex gap-3">
-                    {selectedAsset.duration && (
-                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                        <Clock className="size-3.5" />
-                        {selectedAsset.duration}s
-                      </div>
-                    )}
-                    {selectedAsset.hasAudio && (
-                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                        <Volume2 className="size-3.5" />
-                        Audio
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {(() => {
-                  const params = selectedAsset.parameters;
-                  if (!params) return null;
-                  const entries = Object.entries(params).filter(
-                    ([key, v]) => v != null && v !== "" && key !== "imageInput" && key !== "loras"
-                  );
-                  return entries.length > 0 ? (
-                    <div>
-                      <h4 className="text-sm font-medium text-muted-foreground mb-1">
-                        Parameters
-                      </h4>
-                      <div className="flex flex-wrap gap-1">
-                        {entries.map(([key, value]) => (
-                          <Badge key={key} variant="outline" className="text-xs">
-                            {key}: {String(value)}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null;
-                })()}
 
                 {normalizeImageInputs(selectedAsset.parameters?.imageInput).length > 0 && (
                   <div>
@@ -840,6 +1007,28 @@ export function GalleryClient() {
                   </div>
                 )}
 
+                {(() => {
+                  const params = selectedAsset.parameters;
+                  if (!params) return null;
+                  const entries = Object.entries(params).filter(
+                    ([key, v]) => v != null && v !== "" && key !== "imageInput" && key !== "loras"
+                  );
+                  return entries.length > 0 ? (
+                    <div>
+                      <h4 className="text-sm font-medium text-muted-foreground mb-1">
+                        Parameters
+                      </h4>
+                      <div className="flex flex-wrap gap-1">
+                        {entries.map(([key, value]) => (
+                          <Badge key={key} variant="outline" className="text-xs">
+                            {key}: {String(value)}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
+
                 {(selectedAsset.width || selectedAsset.height) && (
                   <div>
                     <h4 className="text-sm font-medium text-muted-foreground mb-1">
@@ -853,56 +1042,6 @@ export function GalleryClient() {
                         </span>
                       )}
                     </p>
-                  </div>
-                )}
-
-                <div>
-                  <h4 className="text-sm font-medium text-muted-foreground mb-1">
-                    Creator
-                  </h4>
-                  <p className="text-sm">
-                    {selectedAsset.user.name ?? selectedAsset.user.email ?? "Unknown"}
-                  </p>
-                </div>
-
-                <div>
-                  <h4 className="text-sm font-medium text-muted-foreground mb-1">
-                    Created
-                  </h4>
-                  <p className="text-sm">
-                    {new Date(selectedAsset.createdAt).toLocaleDateString(
-                      undefined,
-                      {
-                        year: "numeric",
-                        month: "long",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      }
-                    )}
-                  </p>
-                </div>
-
-                {selectedAsset.brand && (
-                  <div>
-                    <h4 className="text-sm font-medium text-muted-foreground mb-1">
-                      Brand
-                    </h4>
-                    <span
-                      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium"
-                      style={{
-                        backgroundColor: `${selectedAsset.brand.color}20`,
-                        borderColor: `${selectedAsset.brand.color}60`,
-                        color: selectedAsset.brand.color,
-                      }}
-                    >
-                      <span
-                        className="inline-block h-2 w-2 rounded-full"
-                        style={{ backgroundColor: selectedAsset.brand.color }}
-                      />
-                      {selectedAsset.brand.name}
-                      {selectedAsset.brand.isPersonal ? " (Personal)" : ""}
-                    </span>
                   </div>
                 )}
 
@@ -923,7 +1062,71 @@ export function GalleryClient() {
               </div>
             </div>
 
-            <DialogFooter>
+            {reassignOpen && (
+              <div className="border-t bg-muted/40 p-4 space-y-3 shrink-0">
+                <div>
+                  <h4 className="text-sm font-medium">Move to brand</h4>
+                  <p className="text-xs text-muted-foreground">
+                    The asset moves in place — no duplicate, same id.
+                  </p>
+                </div>
+                <Select
+                  value={reassignTargetBrandId}
+                  onValueChange={(v) => setReassignTargetBrandId(v ?? "")}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Pick a destination brand…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {reassignDestinations.length === 0 ? (
+                      <SelectItem value="__none" disabled>
+                        No eligible brands
+                      </SelectItem>
+                    ) : (
+                      reassignDestinations.map((b) => (
+                        <SelectItem key={b.id} value={b.id}>
+                          <span className="flex items-center gap-2">
+                            <BrandMark brand={b} size="xs" />
+                            {b.name}
+                          </span>
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                {selectedAsset.status === "in_review" && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    Moving this asset will reset its status to draft and
+                    require resubmission.
+                  </p>
+                )}
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setReassignOpen(false);
+                      setReassignTargetBrandId("");
+                    }}
+                    disabled={reassigning}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleReassign}
+                    disabled={!reassignTargetBrandId || reassigning}
+                  >
+                    {reassigning ? (
+                      <Loader2 className="size-4 animate-spin mr-1" />
+                    ) : null}
+                    Move
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <DialogFooter className="m-0 shrink-0 flex-wrap">
               {/* Submit for review (T094) — drafts only */}
               {selectedAsset.status === "draft" && (
                 <Button
@@ -942,6 +1145,21 @@ export function GalleryClient() {
                 >
                   <GitFork className="size-4 mr-1.5" />
                   Edit / Fork
+                </Button>
+              )}
+              {/* Move to brand… — creator+, brand_manager on source, or
+                  workspace admin. Hidden for approved (fork-required) and
+                  while the inline picker is already open. */}
+              {canReassignSelected && !reassignOpen && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setReassignTargetBrandId(reassignDestinations[0]?.id ?? "");
+                    setReassignOpen(true);
+                  }}
+                >
+                  <ArrowRightLeft className="size-4 mr-1.5" />
+                  Move to brand…
                 </Button>
               )}
               {/* Save as Brew */}
@@ -1069,10 +1287,7 @@ export function GalleryClient() {
                   {allBrands.map((b) => (
                     <SelectItem key={b.id} value={b.id}>
                       <span className="flex items-center gap-2">
-                        <span
-                          className="inline-block h-2 w-2 rounded-full"
-                          style={{ backgroundColor: b.color }}
-                        />
+                        <BrandMark brand={b} size="xs" />
                         {b.name}
                         {b.isPersonal && (
                           <span className="ml-1 text-[10px] uppercase tracking-wider text-muted-foreground">

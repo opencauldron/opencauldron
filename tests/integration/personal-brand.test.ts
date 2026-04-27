@@ -3,7 +3,7 @@
  *
  * Pure-function tests over the policy helpers — same DB-free pattern as
  * `permissions.test.ts` and `transitions.test.ts`. The actual DB-backed
- * routes (`/api/assets/[id]/move-to-brand`, `bootstrapHostedSignup`,
+ * routes (`/api/assets/[id]/reassign-brand`, `bootstrapHostedSignup`,
  * `/api/brands/[id]` DELETE) are thin shims over these helpers.
  */
 
@@ -178,8 +178,8 @@ describe("Personal brand — undeletable while owner is a member (FR-006a)", () 
 });
 
 describe("Personal-brand promotion (FR-006c) — destination permission", () => {
-  // The /api/assets/[id]/move-to-brand route gates on canCreateAsset for the
-  // destination. The route itself enforces source.isPersonal & ownership; we
+  // The /api/assets/[id]/reassign-brand route gates on canCreateAsset for the
+  // destination. The route itself enforces source-permission gating; we
   // test the destination gate here.
   it("creator+ on destination passes", () => {
     const ctx = mkCtx({ brandRoles: { "brand-real": "creator" } });
