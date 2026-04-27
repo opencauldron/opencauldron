@@ -1,26 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { brands, assetBrands, users } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { brands, workspaceMembers } from "@/lib/db/schema";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
+import {
+  loadBrandContext,
+  loadRoleContext,
+  canEditBrandKit,
+  canDeleteBrand,
+} from "@/lib/workspace/permissions";
 
-const updateBrandSchema = z.object({
+const HEX = /^#[0-9a-fA-F]{6}$/;
+
+const updateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
-  color: z
-    .string()
-    .regex(/^#[0-9a-fA-F]{6}$/, "Color must be a valid hex color")
-    .optional(),
+  slug: z.string().min(1).max(80).regex(/^[a-z0-9-]+$/).optional(),
+  color: z.string().regex(HEX).optional(),
+  promptPrefix: z.string().max(500).nullable().optional(),
+  promptSuffix: z.string().max(500).nullable().optional(),
+  bannedTerms: z.array(z.string().min(1).max(64)).max(64).optional(),
+  defaultLoraId: z.string().nullable().optional(),
+  defaultLoraIds: z.array(z.string()).max(16).optional(),
+  anchorReferenceIds: z.array(z.string().uuid()).max(16).optional(),
+  palette: z.array(z.string().regex(HEX)).max(16).optional(),
+  selfApprovalAllowed: z.boolean().optional(),
+  videoEnabled: z.boolean().optional(),
 });
 
-async function requireAdmin(userId: string) {
-  const [user] = await db
-    .select({ role: users.role })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await auth();
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { id } = await params;
+  const [brand] = await db.select().from(brands).where(eq(brands.id, id)).limit(1);
+  if (!brand) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  return user?.role === "admin";
+  if (!brand.workspaceId) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const ctx = await loadRoleContext(session.user.id, brand.workspaceId);
+  if (!ctx.workspace) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json(brand);
 }
 
 export async function PATCH(
@@ -28,52 +49,40 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  if (!(await requireAdmin(session.user.id))) {
-    return NextResponse.json(
-      { error: "Only admins can update brands" },
-      { status: 403 }
-    );
-  }
-
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
 
-  const body = await req.json();
-  const parsed = updateBrandSchema.safeParse(body);
+  const brandCtx = await loadBrandContext(id);
+  if (!brandCtx) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const ctx = await loadRoleContext(session.user.id, brandCtx.workspaceId);
+  if (!canEditBrandKit(ctx, brandCtx)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const body = await req.json().catch(() => ({}));
+  const parsed = updateSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Invalid input", details: parsed.error.flatten() },
       { status: 400 }
     );
   }
-
-  const updates = parsed.data;
-  if (!updates.name && !updates.color) {
-    return NextResponse.json(
-      { error: "Nothing to update" },
-      { status: 400 }
-    );
+  if (Object.keys(parsed.data).length === 0) {
+    return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
 
   try {
     const [updated] = await db
       .update(brands)
-      .set(updates)
+      .set(parsed.data)
       .where(eq(brands.id, id))
       .returning();
-
-    if (!updated) {
-      return NextResponse.json({ error: "Brand not found" }, { status: 404 });
-    }
-
+    if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json(updated);
   } catch (error) {
     if (error instanceof Error && error.message.includes("unique")) {
       return NextResponse.json(
-        { error: "A brand with that name already exists" },
+        { error: "Name or slug collision in this workspace" },
         { status: 409 }
       );
     }
@@ -86,30 +95,37 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  if (!(await requireAdmin(session.user.id))) {
-    return NextResponse.json(
-      { error: "Only admins can delete brands" },
-      { status: 403 }
-    );
-  }
-
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
 
-  // Delete from junction table first (cascade should handle this, but be explicit)
-  await db.delete(assetBrands).where(eq(assetBrands.brandId, id));
+  const brandCtx = await loadBrandContext(id);
+  if (!brandCtx) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const [deleted] = await db
-    .delete(brands)
-    .where(eq(brands.id, id))
-    .returning({ id: brands.id });
-
-  if (!deleted) {
-    return NextResponse.json({ error: "Brand not found" }, { status: 404 });
+  let ownerStillMember = false;
+  if (brandCtx.isPersonal && brandCtx.ownerId) {
+    const rows = await db
+      .select({ cnt: sql<number>`count(*)::int` })
+      .from(workspaceMembers)
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, brandCtx.workspaceId),
+          eq(workspaceMembers.userId, brandCtx.ownerId)
+        )
+      );
+    ownerStillMember = (rows[0]?.cnt ?? 0) > 0;
   }
 
+  const ctx = await loadRoleContext(session.user.id, brandCtx.workspaceId);
+  if (!canDeleteBrand(ctx, brandCtx, ownerStillMember)) {
+    if (brandCtx.isPersonal && ownerStillMember) {
+      return NextResponse.json(
+        { error: "personal_brand_undeletable" },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  await db.delete(brands).where(eq(brands.id, id));
   return NextResponse.json({ success: true });
 }

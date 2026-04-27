@@ -232,6 +232,14 @@ export function AppSidebar({ user }: AppSidebarProps) {
       </SidebarHeader>
 
       <SidebarContent>
+        {/*
+          Workspace-switcher slot (T061 placeholder).
+          Phase 8b (T136) replaces this stub with the full WorkspaceSwitcher
+          + BrandList components per the n8n-style sidebar plan. Kept as an
+          empty container so the upcoming swap is a one-file edit.
+        */}
+        <div data-slot="workspace-switcher" />
+
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
