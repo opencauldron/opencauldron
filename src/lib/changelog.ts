@@ -7,6 +7,15 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-04-27",
+    title: "Campaigns",
+    bullets: [
+      "Group assets by initiative — create campaigns under any brand from /brands/[slug]/campaigns",
+      "Brand managers can create, rename, or delete campaigns",
+      "API for tagging assets with campaigns is live; gallery filter chip ships next",
+    ],
+  },
+  {
+    date: "2026-04-27",
     title: "Three-level brew visibility",
     bullets: [
       "Brews are now Private (just you), Brand (everyone on the brand), or Public (Explore tab)",
