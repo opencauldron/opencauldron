@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -30,23 +30,27 @@ import {
   ImageIcon,
   Loader2,
   Play,
-  Video,
   Volume2,
   Clock,
   Wand2,
-  Tag,
-  Check,
   FlaskConical,
   ImagePlus,
   Send,
   GitFork,
+  Video,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { normalizeImageInputs } from "@/lib/normalize-image-inputs";
+import {
+  ASSET_STATUSES,
+  STATUS_LABELS,
+  StatusBadge,
+  type AssetStatus,
+} from "@/components/status-badge";
 
 const PROVIDER_LABELS: Record<string, string> = {
   google: "Gemini",
@@ -68,6 +72,7 @@ interface AssetBrand {
   id: string;
   name: string;
   color: string;
+  isPersonal?: boolean;
 }
 
 interface AssetUser {
@@ -80,7 +85,7 @@ interface GalleryAsset {
   id: string;
   userId: string;
   brandId: string | null;
-  status: "draft" | "in_review" | "approved" | "rejected" | "archived" | null;
+  status: AssetStatus | null;
   parentAssetId: string | null;
   mediaType: string;
   model: string;
@@ -97,6 +102,9 @@ interface GalleryAsset {
   duration: number | null;
   hasAudio: boolean | null;
   createdAt: string;
+  /** Single canonical brand from `assets.brand_id` (FR-007). */
+  brand: AssetBrand | null;
+  /** Legacy multi-brand shape — `[brand]` if brand is set, else `[]`. */
   brands: AssetBrand[];
   tags: string[];
   user: AssetUser;
@@ -133,6 +141,7 @@ const MEDIA_TYPE_OPTIONS = [
 
 export function GalleryClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [assets, setAssets] = useState<GalleryAsset[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -148,62 +157,78 @@ export function GalleryClient() {
   const [brewIncludePrompt, setBrewIncludePrompt] = useState(true);
   const [isSavingBrew, setIsSavingBrew] = useState(false);
 
-  // Brands
+  // Brands the current user can see (workspace-scoped via /api/brands).
   const [allBrands, setAllBrands] = useState<AssetBrand[]>([]);
 
   useEffect(() => {
     fetch("/api/brands")
       .then((r) => r.json())
-      .then((data) => { if (Array.isArray(data)) setAllBrands(data); })
+      .then((data) => {
+        if (Array.isArray(data)) setAllBrands(data);
+      })
       .catch(() => {});
   }, []);
 
-  async function toggleBrand(asset: GalleryAsset, brandId: string) {
-    const current = asset.brands.map((b) => b.id);
-    const isActive = current.includes(brandId);
-    const next = isActive ? current.filter((b) => b !== brandId) : [...current, brandId];
-
-    try {
-      const res = await fetch(`/api/assets/${asset.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brands: next }),
-      });
-      if (!res.ok) throw new Error();
-
-      const brand = allBrands.find((b) => b.id === brandId)!;
-      const updatedBrands = isActive
-        ? asset.brands.filter((b) => b.id !== brandId)
-        : [...asset.brands, brand];
-
-      const updated = { ...asset, brands: updatedBrands };
-      setAssets((prev) => prev.map((a) => (a.id === asset.id ? updated : a)));
-      setSelectedAsset(updated);
-    } catch {
-      // silent fail
-    }
-  }
-
-  // Filters
-  const [modelFilter, setModelFilter] = useState("");
-  const [mediaTypeFilter, setMediaTypeFilter] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  // Filters — initial values seeded from URL so deep-links (and back/forward
+  // navigation) round-trip cleanly. Filters are URL-state for the lifetime of
+  // the page; we mirror them back into searchParams every time they change.
+  const [modelFilter, setModelFilter] = useState(
+    () => searchParams.get("model") ?? ""
+  );
+  const [mediaTypeFilter, setMediaTypeFilter] = useState(
+    () => searchParams.get("mediaType") ?? ""
+  );
+  const [statusFilter, setStatusFilter] = useState<AssetStatus | "">(
+    () => (searchParams.get("status") as AssetStatus | null) ?? ""
+  );
+  const [brandFilter, setBrandFilter] = useState<string>(
+    () => searchParams.get("brand") ?? ""
+  );
+  const [searchQuery, setSearchQuery] = useState(
+    () => searchParams.get("search") ?? ""
+  );
+  const [dateFrom, setDateFrom] = useState(() => searchParams.get("from") ?? "");
+  const [dateTo, setDateTo] = useState(() => searchParams.get("to") ?? "");
 
   const observerRef = useRef<HTMLDivElement>(null);
+
+  // Sync filter state to the URL (replace, not push, so each keystroke doesn't
+  // bloat history). useEffect dependency tracks the canonical filter set.
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (modelFilter) next.set("model", modelFilter);
+    if (mediaTypeFilter) next.set("mediaType", mediaTypeFilter);
+    if (statusFilter) next.set("status", statusFilter);
+    if (brandFilter) next.set("brand", brandFilter);
+    if (searchQuery.trim()) next.set("search", searchQuery.trim());
+    if (dateFrom) next.set("from", dateFrom);
+    if (dateTo) next.set("to", dateTo);
+    const qs = next.toString();
+    const url = qs ? `?${qs}` : window.location.pathname;
+    window.history.replaceState(null, "", url);
+  }, [
+    modelFilter,
+    mediaTypeFilter,
+    statusFilter,
+    brandFilter,
+    searchQuery,
+    dateFrom,
+    dateTo,
+  ]);
 
   const buildQuery = useCallback(
     (cursor?: string) => {
       const params = new URLSearchParams();
       if (modelFilter) params.set("model", modelFilter);
       if (mediaTypeFilter) params.set("mediaType", mediaTypeFilter);
+      if (statusFilter) params.set("status", statusFilter);
+      if (brandFilter) params.set("brand", brandFilter);
       if (searchQuery.trim()) params.set("search", searchQuery.trim());
       if (cursor) params.set("cursor", cursor);
       params.set("limit", "30");
       return params.toString();
     },
-    [modelFilter, mediaTypeFilter, searchQuery]
+    [modelFilter, mediaTypeFilter, statusFilter, brandFilter, searchQuery]
   );
 
   const fetchAssets = useCallback(
@@ -393,14 +418,28 @@ export function GalleryClient() {
     }
   };
 
-  const hasFilters = modelFilter || mediaTypeFilter || searchQuery || dateFrom || dateTo;
+  const hasFilters =
+    !!modelFilter ||
+    !!mediaTypeFilter ||
+    !!statusFilter ||
+    !!brandFilter ||
+    !!searchQuery ||
+    !!dateFrom ||
+    !!dateTo;
   const clearFilters = () => {
     setModelFilter("");
     setMediaTypeFilter("");
+    setStatusFilter("");
+    setBrandFilter("");
     setSearchQuery("");
     setDateFrom("");
     setDateTo("");
   };
+
+  const activeBrandOption = useMemo(
+    () => allBrands.find((b) => b.id === brandFilter) ?? null,
+    [allBrands, brandFilter]
+  );
 
   return (
     <div className="space-y-4">
@@ -423,6 +462,52 @@ export function GalleryClient() {
             </SelectContent>
           </Select>
         </div>
+
+        <div className="w-40">
+          <Select
+            value={statusFilter}
+            onValueChange={(v) => setStatusFilter((v as AssetStatus | "") ?? "")}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">All Statuses</SelectItem>
+              {ASSET_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {STATUS_LABELS[s]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {allBrands.length > 0 && (
+          <div className="w-44">
+            <Select
+              value={brandFilter}
+              onValueChange={(v) => setBrandFilter(v ?? "")}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="All Brands" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">All Brands</SelectItem>
+                {allBrands.map((b) => (
+                  <SelectItem key={b.id} value={b.id}>
+                    <span className="flex items-center gap-2">
+                      <span
+                        className="inline-block h-2 w-2 rounded-full"
+                        style={{ backgroundColor: b.color }}
+                      />
+                      {b.name}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         <div className="w-44">
           <Select
@@ -492,13 +577,24 @@ export function GalleryClient() {
         </div>
       )}
 
-      {/* Empty State */}
+      {/* Empty State (T114) — distinguishes "filtered down to nothing" from
+          "you don't have access to anything in this brand". */}
       {!loading && assets.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-20 text-center">
           <ImageIcon className="size-12 text-muted-foreground/50 mb-4" />
-          <h3 className="text-lg font-medium">No assets found</h3>
+          <h3 className="text-lg font-medium">
+            {brandFilter && allBrands.length > 0 && !activeBrandOption
+              ? "No access to this brand"
+              : hasFilters
+              ? "No assets match these filters"
+              : "No assets yet"}
+          </h3>
           <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-            {hasFilters
+            {brandFilter && allBrands.length > 0 && !activeBrandOption
+              ? "Ask a brand manager to add you, then refresh."
+              : brandFilter && activeBrandOption
+              ? `Nothing in ${activeBrandOption.name} matches the current filters yet.`
+              : hasFilters
               ? "Try adjusting your filters or search query."
               : "Generate some images or videos to see them here."}
           </p>
@@ -598,7 +694,10 @@ export function GalleryClient() {
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {selectedAsset.status && (
+                    <StatusBadge status={selectedAsset.status} size="md" />
+                  )}
                   <Badge variant="secondary">
                     {getModelLabel(selectedAsset.model)}
                   </Badge>
@@ -719,31 +818,26 @@ export function GalleryClient() {
                   </p>
                 </div>
 
-                {allBrands.length > 0 && (
+                {selectedAsset.brand && (
                   <div>
                     <h4 className="text-sm font-medium text-muted-foreground mb-1">
                       Brand
                     </h4>
-                    <div className="flex flex-wrap gap-1.5">
-                      {allBrands.map((brand) => {
-                        const isActive = selectedAsset.brands.some((b) => b.id === brand.id);
-                        return (
-                          <button
-                            key={brand.id}
-                            onClick={() => toggleBrand(selectedAsset, brand.id)}
-                            className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium cursor-pointer transition-all hover:opacity-80 hover:scale-105"
-                            style={{
-                              backgroundColor: isActive ? `${brand.color}20` : undefined,
-                              borderColor: isActive ? `${brand.color}60` : undefined,
-                              color: isActive ? brand.color : undefined,
-                            }}
-                          >
-                            {isActive ? <Check className="h-3 w-3" /> : <Tag className="h-3 w-3" />}
-                            {brand.name}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <span
+                      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium"
+                      style={{
+                        backgroundColor: `${selectedAsset.brand.color}20`,
+                        borderColor: `${selectedAsset.brand.color}60`,
+                        color: selectedAsset.brand.color,
+                      }}
+                    >
+                      <span
+                        className="inline-block h-2 w-2 rounded-full"
+                        style={{ backgroundColor: selectedAsset.brand.color }}
+                      />
+                      {selectedAsset.brand.name}
+                      {selectedAsset.brand.isPersonal ? " (Personal)" : ""}
+                    </span>
                   </div>
                 )}
 
@@ -980,22 +1074,27 @@ function GalleryCard({
           loading="lazy"
         />
 
-        {/* Brand tags — always visible */}
-        {asset.brands.length > 0 && (
-          <div className="absolute top-2 left-2 flex flex-wrap gap-1 z-10">
-            {asset.brands.map((brand) => (
-              <span
-                key={brand.id}
-                className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold backdrop-blur-sm border"
-                style={{
-                  backgroundColor: `${brand.color}40`,
-                  borderColor: `${brand.color}60`,
-                  color: "white",
-                }}
-              >
-                {brand.name}
-              </span>
-            ))}
+        {/* Brand tag — top-left, single brand from FK (FR-009). */}
+        {asset.brand && (
+          <div className="absolute top-2 left-2 z-10">
+            <span
+              className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold backdrop-blur-sm border"
+              style={{
+                backgroundColor: `${asset.brand.color}40`,
+                borderColor: `${asset.brand.color}60`,
+                color: "white",
+              }}
+            >
+              {asset.brand.name}
+            </span>
+          </div>
+        )}
+
+        {/* Status badge — top-right (FR-010). Hidden for legacy assets that
+            haven't been backfilled yet (status === null). */}
+        {asset.status && (
+          <div className="absolute top-2 right-2 z-10">
+            <StatusBadge status={asset.status} />
           </div>
         )}
 
@@ -1016,9 +1115,10 @@ function GalleryCard({
               </div>
             )}
 
-            {/* Audio indicator */}
+            {/* Audio indicator — moved to bottom-left so the status badge owns
+                the top-right slot. */}
             {asset.hasAudio && (
-              <div className="absolute top-2 right-2">
+              <div className="absolute bottom-2 left-2">
                 <Volume2 className="size-3.5 text-white drop-shadow-md" />
               </div>
             )}
@@ -1038,19 +1138,18 @@ function GalleryCard({
               >
                 {getModelLabel(asset.model)}
               </Badge>
-              {asset.brands.map((brand) => (
+              {asset.brand && (
                 <span
-                  key={brand.id}
                   className="rounded-full px-1.5 py-0.5 text-[9px] font-medium border"
                   style={{
-                    backgroundColor: `${brand.color}30`,
-                    borderColor: `${brand.color}50`,
-                    color: brand.color,
+                    backgroundColor: `${asset.brand.color}30`,
+                    borderColor: `${asset.brand.color}50`,
+                    color: asset.brand.color,
                   }}
                 >
-                  {brand.name}
+                  {asset.brand.name}
                 </span>
-              ))}
+              )}
             </div>
             <Avatar className="h-5 w-5 shrink-0 ml-2 ring-1 ring-white/30">
               <AvatarImage src={asset.user.image ?? undefined} />

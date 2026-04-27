@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { assets, assetBrands, assetTags, brands, users } from "@/lib/db/schema";
 import { getAssetUrl, deleteFile } from "@/lib/storage";
+import { canRead, loadRoleContext } from "@/lib/workspace/permissions";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -53,12 +54,17 @@ export async function GET(
       fileSize: assets.fileSize,
       costEstimate: assets.costEstimate,
       createdAt: assets.createdAt,
+      brandWorkspaceId: brands.workspaceId,
+      brandName: brands.name,
+      brandColor: brands.color,
+      brandIsPersonal: brands.isPersonal,
       userName: users.name,
       userEmail: users.email,
       userImage: users.image,
     })
     .from(assets)
     .innerJoin(users, eq(users.id, assets.userId))
+    .leftJoin(brands, eq(brands.id, assets.brandId))
     .where(eq(assets.id, id))
     .limit(1);
 
@@ -66,27 +72,37 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Fetch brands and tags
-  const [assetBrandRows, assetTagRows] = await Promise.all([
-    db
-      .select({
-        brandId: brands.id,
-        brandName: brands.name,
-        brandColor: brands.color,
-      })
-      .from(assetBrands)
-      .innerJoin(brands, eq(brands.id, assetBrands.brandId))
-      .where(eq(assetBrands.assetId, id)),
-    db
-      .select({ tag: assetTags.tag })
-      .from(assetTags)
-      .where(eq(assetTags.assetId, id)),
-  ]);
+  // FR-007: gate single-asset reads through the workspace permission helpers.
+  // Workspace admins on the asset's workspace pass through; everyone else must
+  // be the creator OR a member of the asset's brand. We treat orphan assets
+  // (no brand resolved) as creator-only.
+  if (asset.brandId && asset.brandWorkspaceId) {
+    const ctx = await loadRoleContext(session.user.id, asset.brandWorkspaceId);
+    if (!canRead(ctx, { brandId: asset.brandId, userId: asset.userId })) {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+  } else if (asset.userId !== session.user.id) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const assetTagRows = await db
+    .select({ tag: assetTags.tag })
+    .from(assetTags)
+    .where(eq(assetTags.assetId, id));
 
   // Build URL
   const url = await getAssetUrl(asset.r2Key);
   const thumbnailUrl = asset.thumbnailR2Key
     ? await getAssetUrl(asset.thumbnailR2Key)
+    : null;
+
+  const brand = asset.brandId
+    ? {
+        id: asset.brandId,
+        name: asset.brandName,
+        color: asset.brandColor,
+        isPersonal: asset.brandIsPersonal,
+      }
     : null;
 
   return NextResponse.json({
@@ -109,11 +125,8 @@ export async function GET(
       fileSize: asset.fileSize,
       costEstimate: asset.costEstimate,
       createdAt: asset.createdAt,
-      brands: assetBrandRows.map((b) => ({
-        id: b.brandId,
-        name: b.brandName,
-        color: b.brandColor,
-      })),
+      brand,
+      brands: brand ? [brand] : [],
       tags: assetTagRows.map((t) => t.tag),
       user: {
         name: asset.userName,

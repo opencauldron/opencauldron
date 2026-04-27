@@ -7,6 +7,16 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-04-27",
+    title: "Gallery now scoped to your brands",
+    bullets: [
+      "Status badges on every tile — draft, in review, approved, rejected, archived",
+      "Filter the gallery by status or brand; filters survive in the URL so you can deep-link a view",
+      "You only see assets you created or that live on a brand you're a member of",
+      "Empty states distinguish 'no matches' from 'no access to this brand'",
+    ],
+  },
+  {
+    date: "2026-04-27",
     title: "Review queue (early access)",
     bullets: [
       "New Review tab in the sidebar with a pending-count badge for brand managers",

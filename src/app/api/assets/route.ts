@@ -1,15 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { assets, assetBrands, assetTags, brands, users } from "@/lib/db/schema";
+import {
+  assets,
+  assetCampaigns,
+  assetTags,
+  brands,
+  users,
+} from "@/lib/db/schema";
 import { getAssetUrl } from "@/lib/storage";
-import { eq, desc, and, ilike, inArray, lt } from "drizzle-orm";
+import { getCurrentWorkspace } from "@/lib/workspace/context";
+import {
+  isWorkspaceAdmin,
+  loadRoleContext,
+} from "@/lib/workspace/permissions";
+import { and, desc, eq, ilike, inArray, lt, or } from "drizzle-orm";
+
+const ASSET_STATUSES = [
+  "draft",
+  "in_review",
+  "approved",
+  "rejected",
+  "archived",
+] as const;
+type AssetStatus = (typeof ASSET_STATUSES)[number];
+
+function isStatus(v: string | null): v is AssetStatus {
+  return v !== null && (ASSET_STATUSES as readonly string[]).includes(v);
+}
 
 export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const userId = session.user.id;
+  const workspace = await getCurrentWorkspace(userId);
+  if (!workspace) {
+    return NextResponse.json({ assets: [], nextCursor: null });
+  }
+
+  const ctx = await loadRoleContext(userId, workspace.id);
 
   const { searchParams } = new URL(req.url);
   const brand = searchParams.get("brand");
@@ -18,54 +50,42 @@ export async function GET(req: NextRequest) {
   const tag = searchParams.get("tag");
   const creator = searchParams.get("creator");
   const search = searchParams.get("search");
+  const statusParam = searchParams.get("status");
+  const campaign = searchParams.get("campaign");
   const cursor = searchParams.get("cursor");
   const limit = Math.min(parseInt(searchParams.get("limit") ?? "30", 10), 100);
 
-  // Build where conditions
-  const conditions = [];
+  const conditions = [eq(brands.workspaceId, workspace.id)];
 
-  if (mediaType && (mediaType === "image" || mediaType === "video")) {
+  // Read permission gate (FR-007). Workspace admin/owner sees everything in
+  // the workspace; everyone else sees only assets they created OR assets on a
+  // brand they're a member of.
+  if (!isWorkspaceAdmin(ctx)) {
+    const memberBrandIds = Array.from(ctx.brandMemberships.keys());
+    if (memberBrandIds.length === 0) {
+      conditions.push(eq(assets.userId, userId));
+    } else {
+      conditions.push(
+        or(eq(assets.userId, userId), inArray(assets.brandId, memberBrandIds))!
+      );
+    }
+  }
+
+  if (mediaType === "image" || mediaType === "video") {
     conditions.push(eq(assets.mediaType, mediaType));
   }
+  if (model) conditions.push(eq(assets.model, model));
+  if (creator) conditions.push(eq(assets.userId, creator));
+  if (search) conditions.push(ilike(assets.prompt, `%${search}%`));
+  if (cursor) conditions.push(lt(assets.createdAt, new Date(cursor)));
+  if (isStatus(statusParam)) conditions.push(eq(assets.status, statusParam));
+  if (brand) conditions.push(eq(assets.brandId, brand));
 
-  if (model) {
-    conditions.push(eq(assets.model, model));
-  }
-
-  if (creator) {
-    conditions.push(eq(assets.userId, creator));
-  }
-
-  if (search) {
-    conditions.push(ilike(assets.prompt, `%${search}%`));
-  }
-
-  if (cursor) {
-    conditions.push(lt(assets.createdAt, new Date(cursor)));
-  }
-
-  // If filtering by brand, get asset IDs that have the brand
-  if (brand) {
-    const brandAssetIds = await db
-      .select({ assetId: assetBrands.assetId })
-      .from(assetBrands)
-      .innerJoin(brands, eq(brands.id, assetBrands.brandId))
-      .where(eq(brands.id, brand));
-
-    const ids = brandAssetIds.map((r) => r.assetId);
-    if (ids.length === 0) {
-      return NextResponse.json({ assets: [], nextCursor: null });
-    }
-    conditions.push(inArray(assets.id, ids));
-  }
-
-  // If filtering by tag, get asset IDs with that tag
   if (tag) {
     const tagAssetIds = await db
       .select({ assetId: assetTags.assetId })
       .from(assetTags)
       .where(eq(assetTags.tag, tag));
-
     const ids = tagAssetIds.map((r) => r.assetId);
     if (ids.length === 0) {
       return NextResponse.json({ assets: [], nextCursor: null });
@@ -73,8 +93,19 @@ export async function GET(req: NextRequest) {
     conditions.push(inArray(assets.id, ids));
   }
 
-  // Fetch assets
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  if (campaign) {
+    const campaignAssetIds = await db
+      .select({ assetId: assetCampaigns.assetId })
+      .from(assetCampaigns)
+      .where(eq(assetCampaigns.campaignId, campaign));
+    const ids = campaignAssetIds.map((r) => r.assetId);
+    if (ids.length === 0) {
+      return NextResponse.json({ assets: [], nextCursor: null });
+    }
+    conditions.push(inArray(assets.id, ids));
+  }
+
+  const where = and(...conditions);
 
   const rows = await db
     .select({
@@ -99,12 +130,16 @@ export async function GET(req: NextRequest) {
       duration: assets.duration,
       hasAudio: assets.hasAudio,
       createdAt: assets.createdAt,
+      brandName: brands.name,
+      brandColor: brands.color,
+      brandIsPersonal: brands.isPersonal,
       userName: users.name,
       userEmail: users.email,
       userImage: users.image,
     })
     .from(assets)
     .innerJoin(users, eq(users.id, assets.userId))
+    .innerJoin(brands, eq(brands.id, assets.brandId))
     .where(where)
     .orderBy(desc(assets.createdAt))
     .limit(limit + 1);
@@ -118,34 +153,19 @@ export async function GET(req: NextRequest) {
 
   const assetIds = assetRows.map((a) => a.id);
 
-  // Fetch brands and tags for these assets
-  const [brandRows, tagRows] = await Promise.all([
+  const [tagRows, campaignRows] = await Promise.all([
     db
-      .select({
-        assetId: assetBrands.assetId,
-        brandId: brands.id,
-        brandName: brands.name,
-        brandColor: brands.color,
-      })
-      .from(assetBrands)
-      .innerJoin(brands, eq(brands.id, assetBrands.brandId))
-      .where(inArray(assetBrands.assetId, assetIds)),
-    db
-      .select({
-        assetId: assetTags.assetId,
-        tag: assetTags.tag,
-      })
+      .select({ assetId: assetTags.assetId, tag: assetTags.tag })
       .from(assetTags)
       .where(inArray(assetTags.assetId, assetIds)),
+    db
+      .select({
+        assetId: assetCampaigns.assetId,
+        campaignId: assetCampaigns.campaignId,
+      })
+      .from(assetCampaigns)
+      .where(inArray(assetCampaigns.assetId, assetIds)),
   ]);
-
-  // Group brands and tags by asset
-  const brandsByAsset = new Map<string, { id: string; name: string; color: string }[]>();
-  for (const row of brandRows) {
-    const arr = brandsByAsset.get(row.assetId) ?? [];
-    arr.push({ id: row.brandId, name: row.brandName, color: row.brandColor });
-    brandsByAsset.set(row.assetId, arr);
-  }
 
   const tagsByAsset = new Map<string, string[]>();
   for (const row of tagRows) {
@@ -154,12 +174,27 @@ export async function GET(req: NextRequest) {
     tagsByAsset.set(row.assetId, arr);
   }
 
-  // Build URLs
+  const campaignsByAsset = new Map<string, string[]>();
+  for (const row of campaignRows) {
+    const arr = campaignsByAsset.get(row.assetId) ?? [];
+    arr.push(row.campaignId);
+    campaignsByAsset.set(row.assetId, arr);
+  }
+
   const assetResults = await Promise.all(
     assetRows.map(async (a) => {
       const url = await getAssetUrl(a.r2Key);
       const thumbnailUrl = a.thumbnailR2Key
         ? await getAssetUrl(a.thumbnailR2Key)
+        : null;
+
+      const brand = a.brandId
+        ? {
+            id: a.brandId,
+            name: a.brandName,
+            color: a.brandColor,
+            isPersonal: a.brandIsPersonal,
+          }
         : null;
 
       return {
@@ -183,8 +218,12 @@ export async function GET(req: NextRequest) {
         duration: a.duration,
         hasAudio: a.hasAudio,
         createdAt: a.createdAt,
-        brands: brandsByAsset.get(a.id) ?? [],
+        brand,
+        // Legacy multi-brand shape; until 0010 ships every asset still has one
+        // single canonical brand. Kept so older clients keep rendering.
+        brands: brand ? [brand] : [],
         tags: tagsByAsset.get(a.id) ?? [],
+        campaignIds: campaignsByAsset.get(a.id) ?? [],
         user: {
           name: a.userName,
           email: a.userEmail,
