@@ -7,6 +7,17 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-04-27",
+    title: "Brand-first sidebar + workspace overview",
+    bullets: [
+      "Sidebar reorganized — Overview, Personal, Review, then a brand list with one row per client/division",
+      "New /overview page shows your drafts, your pending review queue, recently approved work, and personal stats",
+      "Workspace switcher up top for users in multiple workspaces (hosted only)",
+      "+ Add brand button for workspace admins; new brands land with a kit you can edit at /brands/[slug]/kit",
+      "Per-brand pages live at /brands/[slug]/{gallery,brews,kit,members,review}",
+    ],
+  },
+  {
+    date: "2026-04-27",
     title: "Brand kit panel on the generate page",
     bullets: [
       "See exactly what your brand kit will inject before you submit — prefix, suffix, banned terms, default LoRAs, anchor refs",

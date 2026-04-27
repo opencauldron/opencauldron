@@ -51,7 +51,14 @@ import {
   Sparkles,
   ExternalLink,
   ClipboardCheck,
+  LayoutDashboard,
+  UserCircle2,
+  Users,
+  Plus,
 } from "lucide-react";
+import { WorkspaceSwitcher, type Workspace } from "./workspace-switcher";
+import { BrandList } from "./brand-list";
+import { AddBrandDialog } from "./add-brand-dialog";
 import { AboutModal } from "./about-modal";
 import {
   CHANGELOG,
@@ -79,6 +86,24 @@ function getServerSnapshot(): string | null {
   return null;
 }
 
+interface SidebarBrand {
+  id: string;
+  name: string;
+  slug: string | null;
+  color: string;
+  isPersonal: boolean;
+  ownerId: string | null;
+}
+
+interface WorkspaceContext {
+  current: Workspace;
+  memberships: Workspace[];
+  mode: "hosted" | "self_hosted";
+  brands: SidebarBrand[];
+  canCreateBrand: boolean;
+  sharedWithYouEnabled: boolean;
+}
+
 interface AppSidebarProps {
   user: {
     name?: string | null;
@@ -86,6 +111,7 @@ interface AppSidebarProps {
     image?: string | null;
     role?: string;
   };
+  workspaceContext: WorkspaceContext | null;
 }
 
 type NavItem = {
@@ -94,15 +120,35 @@ type NavItem = {
   icon: typeof Wand2;
 };
 
-const mainNavItems: NavItem[] = [
+// Top of the sidebar — workspace-wide chrome shared by every brand. Per-brand
+// surfaces live under /brands/[slug] and render via BrandList below.
+const topNavItems: NavItem[] = [
+  { title: "Overview", href: "/overview", icon: LayoutDashboard },
   { title: "Generate", href: "/generate", icon: Wand2 },
-  { title: "Brews", href: "/brews", icon: FlaskConical },
   { title: "Gallery", href: "/gallery", icon: Images },
+];
+
+// Workspace-wide secondary surfaces — references / LoRAs / leaderboard /
+// brews etc. Rendered below the brand list so the user-curated brand rows
+// dominate the visible IA.
+const secondaryNavItems: NavItem[] = [
+  { title: "Brews", href: "/brews", icon: FlaskConical },
   { title: "References", href: "/references", icon: ImagePlus },
-  { title: "Brands", href: "/brands", icon: Tags },
   { title: "LoRAs", href: "/loras", icon: Layers },
   { title: "Leaderboard", href: "/leaderboard", icon: Trophy },
 ];
+
+const personalBrandItem: NavItem = {
+  title: "Personal",
+  href: "/brands/personal",
+  icon: UserCircle2,
+};
+
+const sharedWithYouItem: NavItem = {
+  title: "Shared with you",
+  href: "/shared",
+  icon: Users,
+};
 
 const reviewNavItem: NavItem = {
   title: "Review",
@@ -222,7 +268,7 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   );
 }
 
-export function AppSidebar({ user }: AppSidebarProps) {
+export function AppSidebar({ user, workspaceContext }: AppSidebarProps) {
   const pathname = usePathname();
   const isAdmin = user.role === "admin";
   const initials = user.name
@@ -281,6 +327,11 @@ export function AppSidebar({ user }: AppSidebarProps) {
     ...(isAdmin ? [adminNavItem] : []),
   ];
 
+  const [addBrandOpen, setAddBrandOpen] = useState(false);
+  const nonPersonalBrands = (workspaceContext?.brands ?? []).filter(
+    (b) => !b.isPersonal
+  );
+
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="relative border-b border-sidebar-border px-4 py-4 group-data-[collapsible=icon]:px-2 group-data-[collapsible=icon]:py-3">
@@ -315,21 +366,74 @@ export function AppSidebar({ user }: AppSidebarProps) {
       </SidebarHeader>
 
       <SidebarContent>
-        {/*
-          Workspace-switcher slot (T061 placeholder).
-          Phase 8b (T136) replaces this stub with the full WorkspaceSwitcher
-          + BrandList components per the n8n-style sidebar plan. Kept as an
-          empty container so the upcoming swap is a one-file edit.
-        */}
-        <div data-slot="workspace-switcher" />
+        {/* Workspace switcher (T136) — header-anchored. Hidden chrome when
+            the user has only one workspace or is on a self-hosted install. */}
+        {workspaceContext && (
+          <div className="border-b border-sidebar-border/60 px-2 py-2 group-data-[collapsible=icon]:px-1">
+            <WorkspaceSwitcher
+              current={workspaceContext.current}
+              memberships={workspaceContext.memberships}
+              mode={workspaceContext.mode}
+            />
+          </div>
+        )}
 
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainNavItems.map((item) => (
+              {topNavItems.map((item) => (
                 <NavLink key={item.href} item={item} pathname={pathname} />
               ))}
+              {workspaceContext && (
+                <NavLink item={personalBrandItem} pathname={pathname} />
+              )}
+              {workspaceContext?.sharedWithYouEnabled && (
+                <NavLink item={sharedWithYouItem} pathname={pathname} />
+              )}
               <ReviewNavLink pathname={pathname} />
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* BRANDS section (T137 / T138). Hidden when the user has no brand
+            memberships outside Personal — the empty list isn't useful chrome. */}
+        {workspaceContext && (nonPersonalBrands.length > 0 || workspaceContext.canCreateBrand) && (
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <BrandList
+                initialBrands={nonPersonalBrands}
+                pathname={pathname}
+              />
+              {workspaceContext.canCreateBrand && (
+                <SidebarMenu>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      onClick={() => setAddBrandOpen(true)}
+                      tooltip="Add brand"
+                      className="text-muted-foreground hover:text-foreground"
+                    >
+                      <Plus className="h-4 w-4 shrink-0" />
+                      <span>Add brand</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              )}
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {secondaryNavItems.map((item) => (
+                <NavLink key={item.href} item={item} pathname={pathname} />
+              ))}
+              {/* Legacy "Brands" admin page — kept under workspace tools for
+                  the moment; replaced by per-brand pages above. */}
+              <NavLink
+                item={{ title: "Manage brands", href: "/brands", icon: Tags }}
+                pathname={pathname}
+              />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -403,6 +507,19 @@ export function AppSidebar({ user }: AppSidebarProps) {
         </SidebarMenu>
       </SidebarFooter>
       <AboutModal open={aboutOpen} onOpenChange={setAboutOpen} />
+      {workspaceContext?.canCreateBrand && (
+        <AddBrandDialog
+          open={addBrandOpen}
+          onOpenChange={setAddBrandOpen}
+          onAdded={(brand) => {
+            // Soft refresh — let the BrandList focus listener pick the new
+            // brand up on its next refetch instead of forcing a full reload.
+            if (brand.slug) {
+              window.location.assign(`/brands/${brand.slug}`);
+            }
+          }}
+        />
+      )}
     </Sidebar>
   );
 }
