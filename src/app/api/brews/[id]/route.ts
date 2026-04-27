@@ -4,14 +4,15 @@ import { db } from "@/lib/db";
 import { brews } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { z } from "zod";
-import { generateBrewSlug } from "@/lib/slug";
-import { isVideoModel } from "@/providers/registry";
 
 const updateBrewSchema = z.object({
   name: z.string().min(1).optional(),
   description: z.string().optional(),
   brandId: z.string().uuid().nullable().optional(),
-  visibility: z.enum(["private", "unlisted", "public"]).optional(),
+  // Visibility writes route through POST /api/brews/[id]/visibility (FR-042)
+  // so the brew_visibility_log row is always written in the same step.
+  // Accept the field on PATCH as a deprecated alias and forward callers there.
+  visibility: z.enum(["private", "brand", "public"]).optional(),
 });
 
 export async function PATCH(
@@ -43,69 +44,31 @@ export async function PATCH(
     );
   }
 
-  // If publishing, validate requirements
-  if (updates.visibility === "unlisted" || updates.visibility === "public") {
-    const [existing] = await db
-      .select()
-      .from(brews)
-      .where(and(eq(brews.id, id), eq(brews.userId, userId)));
-
-    if (!existing) {
-      return NextResponse.json({ error: "Brew not found" }, { status: 404 });
-    }
-
-    if (!existing.previewUrl) {
-      return NextResponse.json(
-        { error: "A preview image is required to publish a brew" },
-        { status: 400 }
-      );
-    }
-
-    if (isVideoModel(existing.model)) {
-      return NextResponse.json(
-        { error: "Video brews cannot be published" },
-        { status: 400 }
-      );
-    }
-
-    // Generate slug if not already set
-    if (!existing.slug) {
-      const slug = generateBrewSlug(existing.name);
-      (updates as Record<string, unknown>).slug = slug;
-    }
+  // Visibility changes belong on the dedicated /visibility endpoint (T155)
+  // so the brew_visibility_log row is always written in the same step.
+  if (updates.visibility) {
+    return NextResponse.json(
+      {
+        error: "use_visibility_endpoint",
+        endpoint: `/api/brews/${id}/visibility`,
+      },
+      { status: 400 }
+    );
   }
 
-  // Retry loop for slug collision
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const [brew] = await db
-        .update(brews)
-        .set({ ...updates, updatedAt: new Date() } as Record<string, unknown>)
-        .where(and(eq(brews.id, id), eq(brews.userId, userId)))
-        .returning();
+  // Slug minting moved to /visibility — PATCH only handles non-visibility
+  // metadata edits, so a single update statement is sufficient.
+  const [brew] = await db
+    .update(brews)
+    .set({ ...updates, updatedAt: new Date() } as Record<string, unknown>)
+    .where(and(eq(brews.id, id), eq(brews.userId, userId)))
+    .returning();
 
-      if (!brew) {
-        return NextResponse.json({ error: "Brew not found" }, { status: 404 });
-      }
-
-      return NextResponse.json({ brew });
-    } catch (err: unknown) {
-      const isSlugCollision =
-        err instanceof Error && err.message.includes("brews_slug_unique");
-      if (isSlugCollision && attempt < 2) {
-        // Regenerate slug and retry
-        const [existing] = await db
-          .select({ name: brews.name })
-          .from(brews)
-          .where(eq(brews.id, id));
-        if (existing) {
-          (updates as Record<string, unknown>).slug = generateBrewSlug(existing.name);
-        }
-        continue;
-      }
-      throw err;
-    }
+  if (!brew) {
+    return NextResponse.json({ error: "Brew not found" }, { status: 404 });
   }
+
+  return NextResponse.json({ brew });
 }
 
 export async function DELETE(

@@ -7,6 +7,15 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-04-27",
+    title: "Three-level brew visibility",
+    bullets: [
+      "Brews are now Private (just you), Brand (everyone on the brand), or Public (Explore tab)",
+      "Promoting a brew to Public still requires a brand manager — creators can flip Private↔Brand on their own",
+      "Every visibility change is logged so you can see who shared what and when",
+    ],
+  },
+  {
+    date: "2026-04-27",
     title: "Brand-first sidebar + workspace overview",
     bullets: [
       "Sidebar reorganized — Overview, Personal, Review, then a brand list with one row per client/division",
