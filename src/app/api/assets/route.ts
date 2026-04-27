@@ -80,6 +80,9 @@ export async function GET(req: NextRequest) {
     .select({
       id: assets.id,
       userId: assets.userId,
+      brandId: assets.brandId,
+      status: assets.status,
+      parentAssetId: assets.parentAssetId,
       mediaType: assets.mediaType,
       model: assets.model,
       provider: assets.provider,
@@ -162,6 +165,9 @@ export async function GET(req: NextRequest) {
       return {
         id: a.id,
         userId: a.userId,
+        brandId: a.brandId,
+        status: a.status,
+        parentAssetId: a.parentAssetId,
         mediaType: a.mediaType,
         model: a.model,
         provider: a.provider,

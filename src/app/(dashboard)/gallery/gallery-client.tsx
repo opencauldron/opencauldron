@@ -38,6 +38,8 @@ import {
   Check,
   FlaskConical,
   ImagePlus,
+  Send,
+  GitFork,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
@@ -77,6 +79,9 @@ interface AssetUser {
 interface GalleryAsset {
   id: string;
   userId: string;
+  brandId: string | null;
+  status: "draft" | "in_review" | "approved" | "rejected" | "archived" | null;
+  parentAssetId: string | null;
   mediaType: string;
   model: string;
   provider: string;
@@ -324,6 +329,67 @@ export function GalleryClient() {
       toast.error("Failed to save brew");
     } finally {
       setIsSavingBrew(false);
+    }
+  };
+
+  const handleSubmitForReview = async (asset: GalleryAsset) => {
+    try {
+      const res = await fetch(`/api/assets/${asset.id}/transition`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "submit" }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (body.error === "personal_brand_no_review") {
+          toast.error("Personal-brand assets can't be submitted for review.");
+        } else if (body.error === "invalid_transition") {
+          toast.error("Only drafts can be submitted.");
+        } else {
+          toast.error(`Couldn't submit: ${body.error ?? res.statusText}`);
+        }
+        return;
+      }
+      toast.success("Submitted for review");
+      const updated: GalleryAsset = { ...asset, status: "in_review" };
+      setAssets((prev) => prev.map((a) => (a.id === asset.id ? updated : a)));
+      setSelectedAsset(updated);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("opencauldron:review-changed"));
+      }
+    } catch {
+      toast.error("Network error");
+    }
+  };
+
+  const handleFork = async (asset: GalleryAsset) => {
+    try {
+      const res = await fetch(`/api/assets/${asset.id}/fork`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (body.error === "fork_requires_approved") {
+          toast.error("Only approved assets can be forked.");
+        } else {
+          toast.error(`Couldn't fork: ${body.error ?? res.statusText}`);
+        }
+        return;
+      }
+      const data = (await res.json()) as {
+        asset: { id: string; brandId: string | null };
+      };
+      toast.success("Forked — opening editor");
+      const params = new URLSearchParams({
+        prompt: asset.prompt,
+        model: asset.model,
+        mediaType: asset.mediaType,
+        forkOf: data.asset.id,
+      });
+      if (data.asset.brandId) params.set("brandId", data.asset.brandId);
+      router.push(`/generate?${params.toString()}`);
+    } catch {
+      toast.error("Network error");
     }
   };
 
@@ -699,6 +765,26 @@ export function GalleryClient() {
             </div>
 
             <DialogFooter>
+              {/* Submit for review (T094) — drafts only */}
+              {selectedAsset.status === "draft" && (
+                <Button
+                  variant="default"
+                  onClick={() => handleSubmitForReview(selectedAsset)}
+                >
+                  <Send className="size-4 mr-1.5" />
+                  Submit for review
+                </Button>
+              )}
+              {/* Edit / Fork (T095) — approved only */}
+              {selectedAsset.status === "approved" && (
+                <Button
+                  variant="default"
+                  onClick={() => handleFork(selectedAsset)}
+                >
+                  <GitFork className="size-4 mr-1.5" />
+                  Edit / Fork
+                </Button>
+              )}
               {/* Save as Brew */}
               <Button
                 variant="outline"

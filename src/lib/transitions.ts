@@ -9,6 +9,13 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { assetReviewLog, assets } from "@/lib/db/schema";
+import {
+  canApprove,
+  canRejectOrArchive,
+  canSubmit,
+  type BrandContext,
+  type RoleContext,
+} from "@/lib/workspace/permissions";
 
 export type AssetStatus =
   | "draft"
@@ -33,13 +40,38 @@ export type LogAction =
   | "forked"
   | "moved_from_personal";
 
-const ALLOWED: Record<TransitionAction, { from: AssetStatus[]; to: AssetStatus; logAction: LogAction }> = {
+export const ALLOWED_TRANSITIONS: Record<
+  TransitionAction,
+  { from: AssetStatus[]; to: AssetStatus; logAction: LogAction }
+> = {
   submit:    { from: ["draft"], to: "in_review", logAction: "submitted" },
   approve:   { from: ["in_review"], to: "approved", logAction: "approved" },
   reject:    { from: ["in_review"], to: "rejected", logAction: "rejected" },
   archive:   { from: ["draft", "in_review", "approved", "rejected"], to: "archived", logAction: "archived" },
   unarchive: { from: ["archived"], to: "draft", logAction: "unarchived" },
 };
+
+/**
+ * Pure state-machine validator. Returns the rule for a given (status, action)
+ * tuple, or throws TransitionError when illegal. No DB access.
+ */
+export function validateTransition(
+  fromStatus: AssetStatus,
+  action: TransitionAction
+): { to: AssetStatus; logAction: LogAction } {
+  const rule = ALLOWED_TRANSITIONS[action];
+  if (!rule) {
+    throw new TransitionError(400, `Unknown action: ${action}`, "unknown_action");
+  }
+  if (!rule.from.includes(fromStatus)) {
+    throw new TransitionError(
+      409,
+      `Cannot ${action} from status=${fromStatus}`,
+      "invalid_transition"
+    );
+  }
+  return { to: rule.to, logAction: rule.logAction };
+}
 
 export class TransitionError extends Error {
   constructor(public status: number, message: string, public code: string) {
@@ -71,11 +103,6 @@ export interface TransitionResult {
 export async function transitionAsset(
   input: TransitionInput
 ): Promise<TransitionResult> {
-  const rule = ALLOWED[input.action];
-  if (!rule) {
-    throw new TransitionError(400, `Unknown action: ${input.action}`, "unknown_action");
-  }
-
   // Row-level lock — guards against double-submit / approve races.
   const current = await db
     .select({ id: assets.id, status: assets.status })
@@ -89,13 +116,7 @@ export async function transitionAsset(
   }
 
   const fromStatus = current[0].status as AssetStatus;
-  if (!rule.from.includes(fromStatus)) {
-    throw new TransitionError(
-      409,
-      `Cannot ${input.action} from status=${fromStatus}`,
-      "invalid_transition"
-    );
-  }
+  const rule = validateTransition(fromStatus, input.action);
 
   await db
     .update(assets)
@@ -131,6 +152,70 @@ export async function logReviewEvent(input: {
     toStatus: input.toStatus,
     note: input.note ?? null,
   });
+}
+
+/**
+ * Pure action-permission gate. Composes the role/permissions matrix with the
+ * Personal-brand carve-outs and self-approval semantics. Returns the http
+ * shape the route handler should emit on denial. No DB access — tests cover
+ * every cell of the matrix without spinning up Postgres.
+ *
+ * Personal-brand handling:
+ *   - submit / approve / reject are rejected outright (`personal_brand_no_review`)
+ *     because Personal assets cannot enter the review pipeline (FR-006b).
+ *   - archive / unarchive are allowed when the actor is the Personal brand
+ *     owner — even if the brand_member row is missing — so users always
+ *     control their own scratch space.
+ */
+export type ActionGateResult =
+  | { ok: true }
+  | { ok: false; status: number; code: string };
+
+export function checkTransitionPermission(
+  action: TransitionAction,
+  ctx: RoleContext,
+  asset: { brandId: string | null; userId: string },
+  brand: BrandContext
+): ActionGateResult {
+  const assetForGate = { brandId: brand.id, userId: asset.userId };
+  switch (action) {
+    case "submit":
+      if (brand.isPersonal) {
+        return { ok: false, status: 403, code: "personal_brand_no_review" };
+      }
+      if (!canSubmit(ctx, assetForGate, brand)) {
+        return { ok: false, status: 403, code: "forbidden" };
+      }
+      return { ok: true };
+    case "approve":
+      if (brand.isPersonal) {
+        return { ok: false, status: 403, code: "personal_brand_no_review" };
+      }
+      if (!canApprove(ctx, assetForGate, brand)) {
+        if (asset.userId === ctx.userId && !brand.selfApprovalAllowed) {
+          return { ok: false, status: 403, code: "self_approval_blocked" };
+        }
+        return { ok: false, status: 403, code: "forbidden" };
+      }
+      return { ok: true };
+    case "reject":
+      if (brand.isPersonal) {
+        return { ok: false, status: 403, code: "personal_brand_no_review" };
+      }
+      if (!canRejectOrArchive(ctx, assetForGate, brand)) {
+        return { ok: false, status: 403, code: "forbidden" };
+      }
+      return { ok: true };
+    case "archive":
+    case "unarchive":
+      if (brand.isPersonal && asset.userId === ctx.userId) {
+        return { ok: true };
+      }
+      if (!canRejectOrArchive(ctx, assetForGate, brand)) {
+        return { ok: false, status: 403, code: "forbidden" };
+      }
+      return { ok: true };
+  }
 }
 
 /** Mutation gate — every UPDATE on assets MUST consult this before touching an `approved` row. */

@@ -50,6 +50,7 @@ import {
   Info,
   Sparkles,
   ExternalLink,
+  ClipboardCheck,
 } from "lucide-react";
 import { AboutModal } from "./about-modal";
 import {
@@ -103,12 +104,94 @@ const mainNavItems: NavItem[] = [
   { title: "Leaderboard", href: "/leaderboard", icon: Trophy },
 ];
 
+const reviewNavItem: NavItem = {
+  title: "Review",
+  href: "/review",
+  icon: ClipboardCheck,
+};
+
 const accountNavItems: NavItem[] = [
   { title: "Usage", href: "/usage", icon: BarChart3 },
   { title: "Profile", href: "/profile", icon: User },
 ];
 
 const adminNavItem: NavItem = { title: "Admin", href: "/admin", icon: Shield };
+
+/**
+ * Review-queue sidebar entry. Polls `/api/reviews/pending` so the badge stays
+ * approximately fresh; hidden entirely for users with no brand-manager role
+ * (the API returns an empty list there, so we collapse to null).
+ */
+function ReviewNavLink({ pathname }: { pathname: string }) {
+  const item = reviewNavItem;
+  const isActive = pathname.startsWith(item.href);
+  const [count, setCount] = useState<number | null>(null);
+  const [hasAccess, setHasAccess] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/reviews/pending", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          brands: { brandId: string }[];
+          totalPending: number;
+        };
+        if (cancelled) return;
+        setHasAccess(data.brands.length > 0);
+        setCount(data.totalPending);
+      } catch {
+        /* silent */
+      }
+    };
+    load();
+    const refresh = () => load();
+    window.addEventListener("opencauldron:review-changed", refresh);
+    const interval = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener("opencauldron:review-changed", refresh);
+    };
+  }, []);
+
+  if (!hasAccess) return null;
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        render={<Link href={item.href} />}
+        isActive={isActive}
+        tooltip={
+          count && count > 0 ? `${item.title} (${count} pending)` : item.title
+        }
+        className={`group/nav transition-all duration-200 hover:translate-x-0.5 ${
+          isActive
+            ? "border-l-2 border-primary bg-primary/10 text-primary font-medium"
+            : "border-l-2 border-transparent"
+        }`}
+      >
+        <item.icon
+          className={`h-4 w-4 shrink-0 transition-colors duration-200 ${
+            isActive
+              ? "text-primary"
+              : "text-muted-foreground group-hover/nav:text-foreground"
+          }`}
+        />
+        <span>{item.title}</span>
+        {count != null && count > 0 && (
+          <span
+            aria-label={`${count} pending review`}
+            className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground group-data-[collapsible=icon]:hidden"
+          >
+            {count > 99 ? "99+" : count}
+          </span>
+        )}
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
 
 function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   const isActive =
@@ -246,6 +329,7 @@ export function AppSidebar({ user }: AppSidebarProps) {
               {mainNavItems.map((item) => (
                 <NavLink key={item.href} item={item} pathname={pathname} />
               ))}
+              <ReviewNavLink pathname={pathname} />
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

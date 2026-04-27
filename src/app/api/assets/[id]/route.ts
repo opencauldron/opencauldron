@@ -6,6 +6,20 @@ import { getAssetUrl, deleteFile } from "@/lib/storage";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
+/**
+ * Approved-asset immutability guard (FR-011 / T083).
+ * Surfaces a 409 with a forkUrl pointer so the client can offer "Edit / Fork".
+ */
+function immutableResponse(assetId: string) {
+  return NextResponse.json(
+    {
+      error: "asset_immutable",
+      forkUrl: `/api/assets/${assetId}/fork`,
+    },
+    { status: 409 }
+  );
+}
+
 // GET /api/assets/[id] - Get a single asset with full details
 export async function GET(
   _req: NextRequest,
@@ -22,6 +36,10 @@ export async function GET(
     .select({
       id: assets.id,
       userId: assets.userId,
+      brandId: assets.brandId,
+      status: assets.status,
+      parentAssetId: assets.parentAssetId,
+      mediaType: assets.mediaType,
       model: assets.model,
       provider: assets.provider,
       prompt: assets.prompt,
@@ -75,6 +93,10 @@ export async function GET(
     asset: {
       id: asset.id,
       userId: asset.userId,
+      brandId: asset.brandId,
+      status: asset.status,
+      parentAssetId: asset.parentAssetId,
+      mediaType: asset.mediaType,
       model: asset.model,
       provider: asset.provider,
       prompt: asset.prompt,
@@ -121,13 +143,18 @@ export async function PATCH(
 
   // Check asset exists
   const [asset] = await db
-    .select({ id: assets.id })
+    .select({ id: assets.id, status: assets.status })
     .from(assets)
     .where(eq(assets.id, id))
     .limit(1);
 
   if (!asset) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // FR-011: approved assets are immutable; fork is the only edit path.
+  if (asset.status === "approved") {
+    return immutableResponse(asset.id);
   }
 
   const body = await req.json();
@@ -195,6 +222,7 @@ export async function DELETE(
   const [asset] = await db
     .select({
       id: assets.id,
+      status: assets.status,
       r2Key: assets.r2Key,
       thumbnailR2Key: assets.thumbnailR2Key,
     })
@@ -204,6 +232,11 @@ export async function DELETE(
 
   if (!asset) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // FR-011: approved assets are immutable; archive instead of deleting.
+  if (asset.status === "approved") {
+    return immutableResponse(asset.id);
   }
 
   // Delete from storage

@@ -6,6 +6,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-04-27",
+    title: "Review queue (early access)",
+    bullets: [
+      "New Review tab in the sidebar with a pending-count badge for brand managers",
+      "Submit a draft for review from the asset detail dialog — your brand manager picks it up from the queue",
+      "Keyboard-driven approve/reject modal: j/k to walk the queue, a to approve, r to reject, n for a note",
+      "Approved assets are now immutable — use Edit / Fork to start a new draft from an approved version",
+      "Personal-brand assets stay out of the review pipeline as expected",
+    ],
+  },
+  {
     date: "2026-04-26",
     title: "License updated to Sustainable Use License v1.0",
     bullets: [
