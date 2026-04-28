@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { brands, users, workspaceMembers } from "@/lib/db/schema";
-import { and, eq, sql } from "drizzle-orm";
+import { brands, users } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import {
+  isBrandManager,
   loadBrandContext,
   loadRoleContext,
   canEditBrandKit,
-  canDeleteBrand,
 } from "@/lib/workspace/permissions";
+import { executeBrandDeletion } from "@/lib/workspace/brand-delete";
 import { getAssetUrl } from "@/lib/storage";
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
@@ -99,42 +100,70 @@ export async function PATCH(
   }
 }
 
+const deleteSchema = z.object({
+  assetAction: z.enum(["reassign", "delete"]),
+  reassignBrandId: z.string().uuid().optional(),
+});
+
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await auth();
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
   const { id } = await params;
 
   const brandCtx = await loadBrandContext(id);
-  if (!brandCtx) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  let ownerStillMember = false;
-  if (brandCtx.isPersonal && brandCtx.ownerId) {
-    const rows = await db
-      .select({ cnt: sql<number>`count(*)::int` })
-      .from(workspaceMembers)
-      .where(
-        and(
-          eq(workspaceMembers.workspaceId, brandCtx.workspaceId),
-          eq(workspaceMembers.userId, brandCtx.ownerId)
-        )
-      );
-    ownerStillMember = (rows[0]?.cnt ?? 0) > 0;
+  if (!brandCtx) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
+  // Must be a member of the workspace at all — anything else is a 404 (we
+  // don't leak workspace existence to outsiders).
   const ctx = await loadRoleContext(session.user.id, brandCtx.workspaceId);
-  if (!canDeleteBrand(ctx, brandCtx, ownerStillMember)) {
-    if (brandCtx.isPersonal && ownerStillMember) {
-      return NextResponse.json(
-        { error: "personal_brand_undeletable" },
-        { status: 409 }
-      );
-    }
+  if (!ctx.workspace) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  // Permission: brand_manager on the brand (workspace admin/owner inherit).
+  if (!isBrandManager(ctx, brandCtx.id)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  await db.delete(brands).where(eq(brands.id, id));
-  return NextResponse.json({ success: true });
+  // Personal brands are never deletable from this endpoint — they're
+  // system-managed alongside workspace membership.
+  if (brandCtx.isPersonal) {
+    return NextResponse.json(
+      { error: "personal_brand_undeletable" },
+      { status: 400 }
+    );
+  }
+
+  const body = await req.json().catch(() => ({}));
+  const parsed = deleteSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Invalid input", details: parsed.error.flatten() },
+      { status: 400 }
+    );
+  }
+
+  const result = await executeBrandDeletion({
+    brandId: id,
+    actorId: session.user.id,
+    assetAction: parsed.data.assetAction,
+    reassignBrandId: parsed.data.reassignBrandId,
+  });
+
+  if (!result.ok) {
+    return NextResponse.json({ error: result.code }, { status: result.status });
+  }
+
+  return NextResponse.json({
+    success: true,
+    assetCount: result.assetCount,
+    brewCount: result.brewCount,
+  });
 }
