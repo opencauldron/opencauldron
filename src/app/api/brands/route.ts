@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { assets, brandMembers, brands, users } from "@/lib/db/schema";
-import { and, eq, sql } from "drizzle-orm";
+import { assets, brandMembers, brands, brews, users } from "@/lib/db/schema";
+import { and, eq, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getCurrentWorkspace } from "@/lib/workspace/context";
 import { loadRoleContext, canCreateBrand } from "@/lib/workspace/permissions";
@@ -53,21 +53,40 @@ export async function GET() {
     logoR2Key: brands.logoR2Key,
     ownerImage: users.image,
     assetCount: sql<number>`(SELECT count(*)::int FROM ${assets} WHERE ${assets.brandId} = ${brands.id})`,
+    brewCount: sql<number>`(SELECT count(*)::int FROM ${brews} WHERE ${brews.brandId} = ${brands.id})`,
   } as const;
+
+  // Personal brands are private by design — every member sees only their own,
+  // not their teammates'. The filter applies to both the admin and member
+  // paths: a workspace admin browsing /brands shouldn't see seven "Personal"
+  // rows for seven other people. Real (non-personal) brands behave per
+  // FR-027: admins see all, members see those they're brand_members of.
+  const ownPersonalOrRealBrand = or(
+    eq(brands.isPersonal, false),
+    eq(brands.ownerId, session.user.id)
+  );
 
   const rows = adminOverride
     ? await db
         .select(baseSelect)
         .from(brands)
         .leftJoin(users, eq(users.id, brands.ownerId))
-        .where(eq(brands.workspaceId, workspace.id))
+        .where(
+          and(eq(brands.workspaceId, workspace.id), ownPersonalOrRealBrand)
+        )
         .orderBy(brands.name)
     : await db
         .select(baseSelect)
         .from(brands)
         .innerJoin(brandMembers, eq(brandMembers.brandId, brands.id))
         .leftJoin(users, eq(users.id, brands.ownerId))
-        .where(and(eq(brands.workspaceId, workspace.id), eq(brandMembers.userId, session.user.id)))
+        .where(
+          and(
+            eq(brands.workspaceId, workspace.id),
+            eq(brandMembers.userId, session.user.id),
+            ownPersonalOrRealBrand
+          )
+        )
         .orderBy(brands.name);
 
   // Re-resolve logo keys to fresh signed URLs. Done in parallel — typically a

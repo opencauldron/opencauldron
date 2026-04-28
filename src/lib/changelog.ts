@@ -6,6 +6,17 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-04-28",
+    title: "Delete brands you no longer need",
+    bullets: [
+      "Brand managers can now delete a brand from the brands list (⋯ menu on each row) or from the brand's settings page (new Danger Zone)",
+      "When deleting, choose what happens to the brand's assets and brews: move them to another brand, or delete them along with the brand",
+      "Type the brand's name to confirm — same pattern as GitHub repo deletes",
+      "Personal brands are hidden from this flow — they're system-managed and stay tied to your account",
+      "The brands list also stops showing other teammates' Personal brands; you only see your own",
+    ],
+  },
+  {
     date: "2026-04-27",
     title: "Home page with quick actions",
     bullets: [

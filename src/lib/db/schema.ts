@@ -427,7 +427,9 @@ export const generations = pgTable(
       .default("pending"),
     errorMessage: text("error_message"),
     jobId: text("job_id"),
-    assetId: uuid("asset_id").references(() => assets.id),
+    assetId: uuid("asset_id").references(() => assets.id, {
+      onDelete: "set null",
+    }),
     costEstimate: real("cost_estimate").notNull().default(0),
     xpEarned: integer("xp_earned").notNull().default(0),
     durationMs: integer("duration_ms"),

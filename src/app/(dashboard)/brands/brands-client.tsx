@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,9 +16,20 @@ import {
   DialogTrigger,
   DialogClose,
 } from "@/components/ui/dialog";
-import { Plus, Pencil, Trash2, Loader2, Tag } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Plus, Pencil, Loader2, MoreHorizontal, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { BrandMark } from "@/components/brand-mark";
+import {
+  DeleteBrandModal,
+  type DeleteBrandReassignTarget,
+  type DeleteBrandTarget,
+} from "@/components/delete-brand-modal";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,10 +38,12 @@ import { BrandMark } from "@/components/brand-mark";
 interface Brand {
   id: string;
   name: string;
+  slug: string | null;
   color: string;
   createdBy: string | null;
   createdAt: string;
   assetCount: number;
+  brewCount?: number;
   isPersonal?: boolean;
   logoUrl?: string | null;
   ownerImage?: string | null;
@@ -280,85 +293,28 @@ function EditBrandDialog({
 }
 
 // ---------------------------------------------------------------------------
-// Delete Brand Dialog
-// ---------------------------------------------------------------------------
-
-function DeleteBrandDialog({
-  brand,
-  onDeleted,
-}: {
-  brand: Brand;
-  onDeleted: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-
-  async function handleDelete() {
-    setDeleting(true);
-    try {
-      const res = await fetch(`/api/brands/${brand.id}`, {
-        method: "DELETE",
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to delete brand");
-
-      toast.success(`Brand "${brand.name}" deleted`);
-      setOpen(false);
-      onDeleted();
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Failed to delete brand"
-      );
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
-        render={<Button variant="ghost" size="icon-sm" />}
-      >
-        <Trash2 className="h-3.5 w-3.5 text-destructive" />
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Delete Brand</DialogTitle>
-          <DialogDescription>
-            Are you sure you want to delete &quot;{brand.name}&quot;? This will
-            remove the brand tag from all associated assets. This action cannot
-            be undone.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>
-            Cancel
-          </DialogClose>
-          <Button
-            variant="destructive"
-            onClick={handleDelete}
-            disabled={deleting}
-          >
-            {deleting && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
-            Delete
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Brand Card
 // ---------------------------------------------------------------------------
 
 function BrandCard({
   brand,
+  reassignTargets,
   onRefresh,
 }: {
   brand: Brand;
+  reassignTargets: DeleteBrandReassignTarget[];
   onRefresh: () => void;
 }) {
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  const deleteTarget: DeleteBrandTarget = {
+    id: brand.id,
+    name: brand.name,
+    slug: brand.slug,
+    assetCount: brand.assetCount,
+    brewCount: brand.brewCount ?? 0,
+  };
+
   return (
     <div className="group flex items-center justify-between rounded-lg border p-4 transition-colors hover:bg-muted/30">
       <div className="flex items-center gap-3 min-w-0">
@@ -380,8 +336,35 @@ function BrandCard({
       </div>
       <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
         <EditBrandDialog brand={brand} onUpdated={onRefresh} />
-        <DeleteBrandDialog brand={brand} onDeleted={onRefresh} />
+        {/* Personal brands are uneditable from this surface — no delete affordance. */}
+        {!brand.isPersonal && (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button variant="ghost" size="icon-sm" />}
+              aria-label={`More actions for ${brand.name}`}
+            >
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={() => setDeleteOpen(true)}
+              >
+                Delete brand
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
+      {!brand.isPersonal && (
+        <DeleteBrandModal
+          open={deleteOpen}
+          brand={deleteTarget}
+          availableTargets={reassignTargets}
+          onClose={() => setDeleteOpen(false)}
+          onDeleted={onRefresh}
+        />
+      )}
     </div>
   );
 }
@@ -413,6 +396,17 @@ export function BrandsClient() {
     fetchBrands();
   }, [fetchBrands]);
 
+  // Reassign targets: every non-personal brand visible to the user. The modal
+  // narrows further per-row by removing the brand being deleted from its own
+  // list of options.
+  const reassignPool = useMemo<DeleteBrandReassignTarget[]>(
+    () =>
+      brands
+        .filter((b) => !b.isPersonal)
+        .map((b) => ({ id: b.id, name: b.name, slug: b.slug })),
+    [brands]
+  );
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -442,7 +436,12 @@ export function BrandsClient() {
       ) : (
         <div className="space-y-2">
           {brands.map((brand) => (
-            <BrandCard key={brand.id} brand={brand} onRefresh={fetchBrands} />
+            <BrandCard
+              key={brand.id}
+              brand={brand}
+              reassignTargets={reassignPool.filter((t) => t.id !== brand.id)}
+              onRefresh={fetchBrands}
+            />
           ))}
         </div>
       )}
