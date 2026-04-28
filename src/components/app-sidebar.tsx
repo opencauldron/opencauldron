@@ -39,7 +39,7 @@ import {
   Sparkles,
   ExternalLink,
   ClipboardCheck,
-  LayoutDashboard,
+  Home,
   Users,
   Plus,
 } from "lucide-react";
@@ -117,7 +117,7 @@ type NavItem = {
 // Top section — workspace-wide chrome shared by every brand. Generate moved
 // out into a dedicated "+ Create" CTA above this list.
 const topNavItems: NavItem[] = [
-  { title: "Overview", href: "/overview", icon: LayoutDashboard },
+  { title: "Home", href: "/overview", icon: Home },
   { title: "Gallery", href: "/gallery", icon: Images },
 ];
 
@@ -370,7 +370,7 @@ export function AppSidebar({ user, workspaceContext }: AppSidebarProps) {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Top nav: Overview / Gallery / Review */}
+        {/* Top nav: Home / Gallery / Review */}
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>

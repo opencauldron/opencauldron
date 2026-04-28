@@ -334,18 +334,52 @@ export function GenerateClient({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canAddMoreImages = imageInputs.length < MAX_REFERENCE_IMAGES;
 
-  // Hydrate from query params (e.g. from gallery "Animate" or references "Use")
+  // Hydrate from query params (e.g. from Home action tiles, gallery
+  // "Animate", or references "Use"). Order matters: resolve `?model=` first
+  // because the model dictates mediaType — that prevents the media-type
+  // validation effect (~L486) from clobbering our prefilled selection.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+
+    const modelParam = params.get("model");
+    const mediaParam = params.get("mediaType");
+
+    if (modelParam) {
+      const inImage = imageModels.some(
+        (m) => m.id === modelParam || m.variants?.some((v) => v.id === modelParam),
+      );
+      const inVideo = videoModels.some(
+        (m) => m.id === modelParam || m.variants?.some((v) => v.id === modelParam),
+      );
+      if (inImage) {
+        setMediaType("image");
+        setSelectedModel(modelParam as typeof selectedModel);
+      } else if (inVideo) {
+        setMediaType("video");
+        setSelectedModel(modelParam as typeof selectedModel);
+      } else if (mediaParam === "video") {
+        setMediaType("video");
+      }
+    } else if (mediaParam === "video") {
+      setMediaType("video");
+    }
+
     const imgInput = params.get("imageInput");
     if (imgInput) {
       setImageInputs([imgInput]);
       setImageInputPreviews([imgInput]);
     }
-    const mediaParam = params.get("mediaType");
-    if (mediaParam === "video") setMediaType("video");
+
     const promptParam = params.get("prompt");
     if (promptParam) setPrompt(promptParam);
+
+    // `?focus=imageInput` from the "Image → image" / "Animate" tiles auto-
+    // opens the references picker so the next click is "pick an image" not
+    // "find the upload button".
+    const focusParam = params.get("focus");
+    if (focusParam === "imageInput" && !imgInput) {
+      handleRefPickerOpen();
+    }
   }, []);
 
   // Reference picker state

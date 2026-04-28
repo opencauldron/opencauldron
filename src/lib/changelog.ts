@@ -7,6 +7,15 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-04-27",
+    title: "Home page with quick actions",
+    bullets: [
+      "Renamed Overview to Home — same page, friendlier name",
+      "New action strip up top: Text → Image, Image → Image, Text → Video, Animate",
+      "Each tile drops you into Generate with the right mode preselected — Image → Image even picks Flux Kontext for you and opens the reference picker",
+    ],
+  },
+  {
+    date: "2026-04-27",
     title: "Move assets between brands",
     bullets: [
       "Asset detail panel now has a 'Move to brand…' action so a miscategorized asset can be reassigned to the correct brand",

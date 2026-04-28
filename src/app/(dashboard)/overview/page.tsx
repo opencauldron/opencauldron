@@ -13,8 +13,12 @@ import {
   CheckCircle2,
   ClipboardList,
   FileText,
+  Film,
+  Image as ImageIcon,
   Inbox,
   Sparkles,
+  Video,
+  Wand2,
 } from "lucide-react";
 import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
@@ -106,14 +110,13 @@ export default async function OverviewPage() {
         <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/70">
           {workspace.name}
         </p>
-        <h1 className="font-heading text-3xl font-bold tracking-tight sm:text-4xl">
-          Overview
-        </h1>
         <p className="text-sm text-muted-foreground">
           Pick up where you left off — drafts, the review queue, and what your
           brands have shipped this week.
         </p>
       </header>
+
+      <ActionStrip />
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-2">
         <Widget
@@ -163,6 +166,73 @@ export default async function OverviewPage() {
         <PersonalStatsCard stats={stats} />
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Action strip — quick-launch tiles into /generate with prefilled context
+// ---------------------------------------------------------------------------
+
+interface ActionTile {
+  title: string;
+  hint: string;
+  href: string;
+  icon: typeof Wand2;
+}
+
+const ACTION_TILES: ActionTile[] = [
+  {
+    title: "Text → Image",
+    hint: "Describe it, generate it.",
+    href: "/generate",
+    icon: Wand2,
+  },
+  {
+    title: "Image → Image",
+    hint: "Edit or restyle a reference.",
+    href: "/generate?focus=imageInput&model=flux-kontext-pro",
+    icon: ImageIcon,
+  },
+  {
+    title: "Text → Video",
+    hint: "Generate a clip from a prompt.",
+    href: "/generate?mediaType=video",
+    icon: Video,
+  },
+  {
+    title: "Animate",
+    hint: "Bring a still image to life.",
+    href: "/generate?mediaType=video&focus=imageInput",
+    icon: Film,
+  },
+];
+
+function ActionStrip() {
+  return (
+    <section aria-label="Quick actions">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {ACTION_TILES.map((tile) => (
+          <Link
+            key={tile.title}
+            href={tile.href}
+            className="group flex items-center gap-3 rounded-xl border border-border/60 bg-card px-4 py-3 transition-colors hover:border-border hover:bg-secondary/30"
+          >
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-primary/20">
+              <tile.icon className="size-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-heading text-sm font-semibold tracking-tight">
+                {tile.title}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {tile.hint}
+              </span>
+            </span>
+            <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/60 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+          </Link>
+        ))}
+      </div>
+    </section>
   );
 }
 
