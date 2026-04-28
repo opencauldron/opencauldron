@@ -142,8 +142,9 @@ BEGIN
 
   UPDATE assets SET brand_id = _taboo_grow_id WHERE brand_id IS NULL;
 
-  -- 9. Pre-existing assets predate the review pipeline — mark approved.
-  UPDATE assets SET status = 'approved' WHERE status = 'draft';
+  -- 9. Pre-existing assets stay in `draft`. Earlier drafts of this migration
+  -- bulk-set them to `approved` on the assumption they were already in use,
+  -- but the team prefers to re-triage everything through the review pipeline.
 
   -- 10. Source classification.
   UPDATE assets a SET source = 'generation'
