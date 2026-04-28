@@ -66,12 +66,15 @@ BEGIN
    WHERE slug IS NULL;
 
   -- 4. Three seed brands. ON CONFLICT idempotent on (workspace_id, name).
+  -- The unique index is partial (WHERE is_personal = false), so we must
+  -- repeat the predicate in the conflict-target clause for Postgres to
+  -- match the index (introduced in 0013).
   INSERT INTO brands (workspace_id, name, slug, color, is_personal, created_by)
   VALUES
     (_ws_id, 'Taboo Grow', 'taboo-grow', '#22c55e', false, _admin_id),
     (_ws_id, 'GIDDI',      'giddi',      '#000000', false, _admin_id),
     (_ws_id, 'Cauldron',   'cauldron',   '#6366f1', false, _admin_id)
-  ON CONFLICT (workspace_id, name) DO NOTHING;
+  ON CONFLICT (workspace_id, name) WHERE is_personal = false DO NOTHING;
 
   SELECT id INTO _taboo_grow_id FROM brands
    WHERE workspace_id = _ws_id AND name = 'Taboo Grow';

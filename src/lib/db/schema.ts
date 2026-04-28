@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   text,
@@ -167,7 +168,12 @@ export const brands = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex("brands_workspace_name_unique").on(t.workspaceId, t.name),
+    // Partial: real brands must have a unique name within the workspace, but
+    // every user gets a Personal brand literally named "Personal" — so the
+    // uniqueness rule is scoped to non-personal brands.
+    uniqueIndex("brands_workspace_name_unique")
+      .on(t.workspaceId, t.name)
+      .where(sql`${t.isPersonal} = false`),
     uniqueIndex("brands_workspace_slug_unique").on(t.workspaceId, t.slug),
     index("brands_workspace_id_idx").on(t.workspaceId),
     index("brands_owner_idx").on(t.ownerId),
