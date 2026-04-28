@@ -9,6 +9,7 @@ import {
   SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -17,30 +18,17 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import {
   WandSparkles,
   Images,
-  Tags,
-  BarChart3,
-  Shield,
-  LogOut,
-  ChevronUp,
   ChevronRight,
   Wand2,
   Trophy,
-  User,
-  Zap,
   Layers,
   FlaskConical,
   ImagePlus,
@@ -50,14 +38,23 @@ import {
   Info,
   Sparkles,
   ExternalLink,
+  ClipboardCheck,
+  Home,
+  Users,
+  Plus,
 } from "lucide-react";
+import { type Workspace } from "./workspace-switcher";
+import { BrandList } from "./brand-list";
+import { AddBrandDialog } from "./add-brand-dialog";
 import { AboutModal } from "./about-modal";
+import { UserMenuPopover } from "./user-menu-popover";
 import {
   CHANGELOG,
   FULL_CHANGELOG_URL,
   WHATS_NEW_SEEN_KEY,
   getLatestChangelogDate,
 } from "@/lib/changelog";
+import { version as APP_VERSION } from "../../package.json";
 
 function subscribeToWhatsNewSeen(callback: () => void) {
   if (typeof window === "undefined") return () => {};
@@ -78,6 +75,25 @@ function getServerSnapshot(): string | null {
   return null;
 }
 
+interface SidebarBrand {
+  id: string;
+  name: string;
+  slug: string | null;
+  color: string;
+  isPersonal: boolean;
+  ownerId: string | null;
+  logoUrl?: string | null;
+}
+
+interface WorkspaceContext {
+  current: Workspace;
+  memberships: Workspace[];
+  mode: "hosted" | "self_hosted";
+  brands: SidebarBrand[];
+  canCreateBrand: boolean;
+  sharedWithYouEnabled: boolean;
+}
+
 interface AppSidebarProps {
   user: {
     name?: string | null;
@@ -85,34 +101,132 @@ interface AppSidebarProps {
     image?: string | null;
     role?: string;
   };
+  workspaceContext: WorkspaceContext | null;
 }
 
 type NavItem = {
   title: string;
   href: string;
   icon: typeof Wand2;
+  /** Match `pathname === href` instead of `startsWith`. Use for items whose
+   *  href is a parent route of unrelated sibling nav (e.g. `/brands` vs
+   *  `/brands/[slug]`). */
+  exact?: boolean;
 };
 
-const mainNavItems: NavItem[] = [
-  { title: "Generate", href: "/generate", icon: Wand2 },
-  { title: "Brews", href: "/brews", icon: FlaskConical },
+// Top section — workspace-wide chrome shared by every brand. Generate moved
+// out into a dedicated "+ Create" CTA above this list.
+const topNavItems: NavItem[] = [
+  { title: "Home", href: "/overview", icon: Home },
   { title: "Gallery", href: "/gallery", icon: Images },
+];
+
+// LIBRARY section — workspace-wide content surfaces.
+const libraryNavItems: NavItem[] = [
+  { title: "Brews", href: "/brews", icon: FlaskConical },
   { title: "References", href: "/references", icon: ImagePlus },
-  { title: "Brands", href: "/brands", icon: Tags },
   { title: "LoRAs", href: "/loras", icon: Layers },
-  { title: "Leaderboard", href: "/leaderboard", icon: Trophy },
 ];
 
-const accountNavItems: NavItem[] = [
-  { title: "Usage", href: "/usage", icon: BarChart3 },
-  { title: "Profile", href: "/profile", icon: User },
-];
+const sharedWithYouItem: NavItem = {
+  title: "Shared with you",
+  href: "/shared",
+  icon: Users,
+};
 
-const adminNavItem: NavItem = { title: "Admin", href: "/admin", icon: Shield };
+const reviewNavItem: NavItem = {
+  title: "Review",
+  href: "/review",
+  icon: ClipboardCheck,
+};
+
+const leaderboardNavItem: NavItem = {
+  title: "Leaderboard",
+  href: "/leaderboard",
+  icon: Trophy,
+};
+
+/**
+ * Review-queue sidebar entry. Polls `/api/reviews/pending` so the badge stays
+ * approximately fresh; hidden entirely for users with no brand-manager role
+ * (the API returns an empty list there, so we collapse to null).
+ */
+function ReviewNavLink({ pathname }: { pathname: string }) {
+  const item = reviewNavItem;
+  const isActive = pathname.startsWith(item.href);
+  const [count, setCount] = useState<number | null>(null);
+  const [hasAccess, setHasAccess] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/reviews/pending", { cache: "no-store" });
+        if (!res.ok) return;
+        const data = (await res.json()) as {
+          brands: { brandId: string }[];
+          totalPending: number;
+        };
+        if (cancelled) return;
+        setHasAccess(data.brands.length > 0);
+        setCount(data.totalPending);
+      } catch {
+        /* silent */
+      }
+    };
+    load();
+    const refresh = () => load();
+    window.addEventListener("opencauldron:review-changed", refresh);
+    const interval = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener("opencauldron:review-changed", refresh);
+    };
+  }, []);
+
+  if (!hasAccess) return null;
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        render={<Link href={item.href} />}
+        isActive={isActive}
+        tooltip={
+          count && count > 0 ? `${item.title} (${count} pending)` : item.title
+        }
+        className={`group/nav transition-all duration-200 hover:translate-x-0.5 ${
+          isActive
+            ? "border-l-2 border-primary bg-primary/10 text-primary font-medium"
+            : "border-l-2 border-transparent"
+        }`}
+      >
+        <item.icon
+          className={`h-4 w-4 shrink-0 transition-colors duration-200 ${
+            isActive
+              ? "text-primary"
+              : "text-muted-foreground group-hover/nav:text-foreground"
+          }`}
+        />
+        <span>{item.title}</span>
+        {count != null && count > 0 && (
+          <span
+            aria-label={`${count} pending review`}
+            className="ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground group-data-[collapsible=icon]:hidden"
+          >
+            {count > 99 ? "99+" : count}
+          </span>
+        )}
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
 
 function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   const isActive =
-    item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+    item.href === "/" || item.exact
+      ? pathname === item.href
+      : pathname.startsWith(item.href);
 
   return (
     <SidebarMenuItem>
@@ -139,16 +253,9 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   );
 }
 
-export function AppSidebar({ user }: AppSidebarProps) {
+export function AppSidebar({ user, workspaceContext }: AppSidebarProps) {
   const pathname = usePathname();
-  const isAdmin = user.role === "admin";
-  const initials = user.name
-    ?.split(" ")
-    .map((n) => n[0])
-    .join("")
-    .toUpperCase() ?? "?";
 
-  const [xpInfo, setXpInfo] = useState<{ level: number; title: string; currentXP: number } | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [whatsNewOpen, setWhatsNewOpen] = useState(false);
@@ -182,21 +289,29 @@ export function AppSidebar({ user }: AppSidebarProps) {
     );
   };
 
-  useEffect(() => {
-    fetch("/api/xp")
-      .then((r) => r.json())
-      .then((data) => {
-        if (typeof data.level === "number") {
-          setXpInfo(data);
-        }
-      })
-      .catch(() => {});
-  }, []);
+  const [addBrandOpen, setAddBrandOpen] = useState(false);
 
-  const bottomNavItems: NavItem[] = [
-    ...accountNavItems,
-    ...(isAdmin ? [adminNavItem] : []),
-  ];
+  // Studio-driven branding (header). Source of truth: the current workspace
+  // record (Settings → Studio writes name/slug/logoUrl). Falls back to env
+  // vars when the workspace context is missing (pre-bootstrap render), and
+  // ultimately to an OpenCauldron default for the OSS unbranded experience.
+  const studioName =
+    workspaceContext?.current.name ??
+    process.env.NEXT_PUBLIC_STUDIO_NAME ??
+    process.env.NEXT_PUBLIC_ORG_NAME ??
+    "OpenCauldron";
+  const studioLogoUrl =
+    workspaceContext?.current.logoUrl ??
+    process.env.NEXT_PUBLIC_ORG_LOGO ??
+    null;
+
+  // BRANDS section visibility: render the section as long as the user has
+  // any brand context (real, personal, or the ability to create one). The
+  // BrandList itself partitions Personal vs. real brands.
+  const allBrands = workspaceContext?.brands ?? [];
+  const showBrandsSection =
+    !!workspaceContext &&
+    (allBrands.length > 0 || workspaceContext.canCreateBrand);
 
   return (
     <Sidebar collapsible="icon">
@@ -204,14 +319,19 @@ export function AppSidebar({ user }: AppSidebarProps) {
         <div className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-primary/0 via-primary/80 to-primary/0" />
         <div className="flex items-center gap-3 group-data-[collapsible=icon]:justify-center">
           <Link
-            href="/"
-            className="flex flex-1 items-center gap-3 overflow-hidden group-data-[collapsible=icon]:hidden"
+            href="/settings/studio"
+            className="group/studio flex flex-1 items-center gap-3 overflow-hidden rounded-md transition-colors hover:bg-sidebar-accent/50 group-data-[collapsible=icon]:hidden"
+            aria-label={`${studioName} — open studio settings`}
           >
-            {process.env.NEXT_PUBLIC_ORG_LOGO ? (
+            {studioLogoUrl ? (
+              // Plain <img>: studio logoUrl is user-supplied, so we skip
+              // next/image's domain allow-list. Env-var fallback uses the
+              // same path for consistency.
+              // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={process.env.NEXT_PUBLIC_ORG_LOGO}
-                alt={process.env.NEXT_PUBLIC_ORG_NAME ?? ""}
-                className="h-9 w-9 shrink-0 rounded-xl"
+                src={studioLogoUrl}
+                alt={studioName}
+                className="h-9 w-9 shrink-0 rounded-xl object-cover"
               />
             ) : (
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[oklch(0.50_0.22_280)] to-[oklch(0.40_0.20_300)] text-white shadow-lg shadow-primary/25">
@@ -220,10 +340,10 @@ export function AppSidebar({ user }: AppSidebarProps) {
             )}
             <div className="min-w-0">
               <h1 className="truncate font-heading text-lg font-bold tracking-tight">
-                {process.env.NEXT_PUBLIC_STUDIO_NAME ?? process.env.NEXT_PUBLIC_ORG_NAME ?? "OpenCauldron"}
+                {studioName}
               </h1>
-              <p className="truncate text-[11px] font-medium uppercase tracking-widest text-muted-foreground/70">
-                {process.env.NEXT_PUBLIC_ORG_NAME ? process.env.NEXT_PUBLIC_ORG_NAME : "Open Source"}
+              <p className="truncate text-[11px] text-muted-foreground/70">
+                OpenCauldron v{APP_VERSION}
               </p>
             </div>
           </Link>
@@ -232,22 +352,80 @@ export function AppSidebar({ user }: AppSidebarProps) {
       </SidebarHeader>
 
       <SidebarContent>
+        {/* + Create CTA — primary action button. Lives directly under the
+            header so the create flow is always one click away. Hidden in
+            collapsed (icon-only) mode where the icon-rail provides nav. */}
+        <SidebarGroup className="pt-3 pb-1 group-data-[collapsible=icon]:hidden">
+          <SidebarGroupContent>
+            <Button
+              render={<Link href="/generate" />}
+              nativeButton={false}
+              variant="default"
+              size="default"
+              className="h-9 w-full justify-center gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Create</span>
+            </Button>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Top nav: Home / Gallery / Review */}
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainNavItems.map((item) => (
+              {topNavItems.map((item) => (
+                <NavLink key={item.href} item={item} pathname={pathname} />
+              ))}
+              <ReviewNavLink pathname={pathname} />
+              {workspaceContext?.sharedWithYouEnabled && (
+                <NavLink item={sharedWithYouItem} pathname={pathname} />
+              )}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* BRANDS section: real brands → Personal → "+ Add brand". The
+            section header includes a gear icon → /brands (manage brands). */}
+        {showBrandsSection && (
+          <BrandList
+            initialBrands={allBrands}
+            pathname={pathname}
+            trailing={
+              workspaceContext?.canCreateBrand ? (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    onClick={() => setAddBrandOpen(true)}
+                    tooltip="Add brand"
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <Plus className="h-4 w-4 shrink-0" />
+                    <span>Add brand</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ) : null
+            }
+          />
+        )}
+
+        {/* LIBRARY section — workspace-wide content surfaces. */}
+        <SidebarGroup>
+          <SidebarGroupLabel>LIBRARY</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {libraryNavItems.map((item) => (
                 <NavLink key={item.href} item={item} pathname={pathname} />
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
 
+        {/* Spacer pushes Leaderboard / Help / What's New to the bottom of
+            the content area, just above the user footer card. */}
         <SidebarGroup className="mt-auto border-t border-sidebar-border/60 pt-2">
           <SidebarGroupContent>
             <SidebarMenu>
-              {bottomNavItems.map((item) => (
-                <NavLink key={item.href} item={item} pathname={pathname} />
-              ))}
+              <NavLink item={leaderboardNavItem} pathname={pathname} />
               <HelpMenuItem
                 helpOpen={helpOpen}
                 setHelpOpen={setHelpOpen}
@@ -266,51 +444,26 @@ export function AppSidebar({ user }: AppSidebarProps) {
 
       <SidebarFooter className="border-t border-sidebar-border">
         <SidebarMenu>
-          <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger
-                render={
-                  <SidebarMenuButton
-                    tooltip={user.name ?? user.email ?? "Account"}
-                    className="h-auto py-2.5"
-                  />
-                }
-              >
-                <Avatar className="h-7 w-7 shrink-0 ring-2 ring-primary/20">
-                  <AvatarImage src={user.image ?? undefined} />
-                  <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
-                    {initials}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex min-w-0 flex-col items-start group-data-[collapsible=icon]:hidden">
-                  <span className="truncate text-sm font-medium">{user.name}</span>
-                  <span className="truncate text-[11px] text-muted-foreground">
-                    {user.email}
-                  </span>
-                  {xpInfo && (
-                    <span className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-primary">
-                      <Zap className="h-3 w-3" />
-                      Lvl {xpInfo.level} {xpInfo.title} · {xpInfo.currentXP} XP
-                    </span>
-                  )}
-                </div>
-                <ChevronUp className="ml-auto h-4 w-4 shrink-0 text-muted-foreground group-data-[collapsible=icon]:hidden" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" className="w-56">
-                <DropdownMenuItem
-                  onClick={() => {
-                    window.location.href = "/api/auth/signout";
-                  }}
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarMenuItem>
+          <UserMenuPopover
+            user={user}
+            studio={{ name: studioName, logoUrl: studioLogoUrl }}
+          />
         </SidebarMenu>
       </SidebarFooter>
       <AboutModal open={aboutOpen} onOpenChange={setAboutOpen} />
+      {workspaceContext?.canCreateBrand && (
+        <AddBrandDialog
+          open={addBrandOpen}
+          onOpenChange={setAddBrandOpen}
+          onAdded={(brand) => {
+            // Soft refresh — let the BrandList focus listener pick the new
+            // brand up on its next refetch instead of forcing a full reload.
+            if (brand.slug) {
+              window.location.assign(`/brands/${brand.slug}`);
+            }
+          }}
+        />
+      )}
     </Sidebar>
   );
 }

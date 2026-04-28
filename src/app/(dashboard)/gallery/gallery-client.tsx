@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -30,21 +30,34 @@ import {
   ImageIcon,
   Loader2,
   Play,
-  Video,
   Volume2,
   Clock,
   Wand2,
-  Tag,
-  Check,
   FlaskConical,
   ImagePlus,
+  Send,
+  GitFork,
+  Video,
+  Upload,
+  ArrowRightLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { normalizeImageInputs } from "@/lib/normalize-image-inputs";
+import {
+  ASSET_STATUSES,
+  STATUS_LABELS,
+  StatusBadge,
+  type AssetStatus,
+} from "@/components/status-badge";
+import {
+  UploadDropzone,
+  type UploadedAsset,
+} from "@/components/upload-dropzone";
+import { BrandMark } from "@/components/brand-mark";
 
 const PROVIDER_LABELS: Record<string, string> = {
   google: "Gemini",
@@ -66,6 +79,9 @@ interface AssetBrand {
   id: string;
   name: string;
   color: string;
+  isPersonal?: boolean;
+  logoUrl?: string | null;
+  ownerImage?: string | null;
 }
 
 interface AssetUser {
@@ -77,6 +93,9 @@ interface AssetUser {
 interface GalleryAsset {
   id: string;
   userId: string;
+  brandId: string | null;
+  status: AssetStatus | null;
+  parentAssetId: string | null;
   mediaType: string;
   model: string;
   provider: string;
@@ -92,6 +111,9 @@ interface GalleryAsset {
   duration: number | null;
   hasAudio: boolean | null;
   createdAt: string;
+  /** Single canonical brand from `assets.brand_id` (FR-007). */
+  brand: AssetBrand | null;
+  /** Legacy multi-brand shape — `[brand]` if brand is set, else `[]`. */
   brands: AssetBrand[];
   tags: string[];
   user: AssetUser;
@@ -126,8 +148,18 @@ const MEDIA_TYPE_OPTIONS = [
 // Main Gallery Component
 // -------------------------------------------------------------------
 
-export function GalleryClient() {
+interface GalleryClientProps {
+  /**
+   * When set, the brand filter is locked to this id: the brand selector is
+   * hidden, the URL no longer carries `?brand=`, and Clear-filters keeps it.
+   * Used by /brands/[slug]/gallery so the brand layout's tab nav stays visible.
+   */
+  lockedBrandId?: string;
+}
+
+export function GalleryClient({ lockedBrandId }: GalleryClientProps = {}) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [assets, setAssets] = useState<GalleryAsset[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -143,62 +175,105 @@ export function GalleryClient() {
   const [brewIncludePrompt, setBrewIncludePrompt] = useState(true);
   const [isSavingBrew, setIsSavingBrew] = useState(false);
 
-  // Brands
+  // Brands the current user can see (workspace-scoped via /api/brands).
   const [allBrands, setAllBrands] = useState<AssetBrand[]>([]);
+
+  // Upload dialog (T122) — brand picker + dropzone. Default brand prefers the
+  // current `brandFilter`, then falls back to the user's first brand.
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadBrandId, setUploadBrandId] = useState<string>("");
+
+  // Reassign-brand inline picker (asset detail panel). Server is the source of
+  // truth on permissions; this advisory state just hides the action when the
+  // caller has no chance of succeeding.
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [reassignTargetBrandId, setReassignTargetBrandId] = useState("");
+  const [reassigning, setReassigning] = useState(false);
+  const [me, setMe] = useState<{
+    userId: string | null;
+    role: "owner" | "admin" | "member" | null;
+    brandRoles: Record<string, "brand_manager" | "creator" | "viewer">;
+  }>({ userId: null, role: null, brandRoles: {} });
 
   useEffect(() => {
     fetch("/api/brands")
       .then((r) => r.json())
-      .then((data) => { if (Array.isArray(data)) setAllBrands(data); })
+      .then((data) => {
+        if (Array.isArray(data)) setAllBrands(data);
+      })
+      .catch(() => {});
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((data) => {
+        setMe({
+          userId: data?.userId ?? null,
+          role: data?.role ?? null,
+          brandRoles: data?.brandRoles ?? {},
+        });
+      })
       .catch(() => {});
   }, []);
 
-  async function toggleBrand(asset: GalleryAsset, brandId: string) {
-    const current = asset.brands.map((b) => b.id);
-    const isActive = current.includes(brandId);
-    const next = isActive ? current.filter((b) => b !== brandId) : [...current, brandId];
-
-    try {
-      const res = await fetch(`/api/assets/${asset.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brands: next }),
-      });
-      if (!res.ok) throw new Error();
-
-      const brand = allBrands.find((b) => b.id === brandId)!;
-      const updatedBrands = isActive
-        ? asset.brands.filter((b) => b.id !== brandId)
-        : [...asset.brands, brand];
-
-      const updated = { ...asset, brands: updatedBrands };
-      setAssets((prev) => prev.map((a) => (a.id === asset.id ? updated : a)));
-      setSelectedAsset(updated);
-    } catch {
-      // silent fail
-    }
-  }
-
-  // Filters
-  const [modelFilter, setModelFilter] = useState("");
-  const [mediaTypeFilter, setMediaTypeFilter] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  // Filters — initial values seeded from URL so deep-links (and back/forward
+  // navigation) round-trip cleanly. Filters are URL-state for the lifetime of
+  // the page; we mirror them back into searchParams every time they change.
+  const [modelFilter, setModelFilter] = useState(
+    () => searchParams.get("model") ?? ""
+  );
+  const [mediaTypeFilter, setMediaTypeFilter] = useState(
+    () => searchParams.get("mediaType") ?? ""
+  );
+  const [statusFilter, setStatusFilter] = useState<AssetStatus | "">(
+    () => (searchParams.get("status") as AssetStatus | null) ?? ""
+  );
+  const [brandFilter, setBrandFilter] = useState<string>(
+    () => lockedBrandId ?? searchParams.get("brand") ?? ""
+  );
+  const [searchQuery, setSearchQuery] = useState(
+    () => searchParams.get("search") ?? ""
+  );
+  const [dateFrom, setDateFrom] = useState(() => searchParams.get("from") ?? "");
+  const [dateTo, setDateTo] = useState(() => searchParams.get("to") ?? "");
 
   const observerRef = useRef<HTMLDivElement>(null);
+
+  // Sync filter state to the URL (replace, not push, so each keystroke doesn't
+  // bloat history). useEffect dependency tracks the canonical filter set.
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (modelFilter) next.set("model", modelFilter);
+    if (mediaTypeFilter) next.set("mediaType", mediaTypeFilter);
+    if (statusFilter) next.set("status", statusFilter);
+    if (brandFilter && !lockedBrandId) next.set("brand", brandFilter);
+    if (searchQuery.trim()) next.set("search", searchQuery.trim());
+    if (dateFrom) next.set("from", dateFrom);
+    if (dateTo) next.set("to", dateTo);
+    const qs = next.toString();
+    const url = qs ? `?${qs}` : window.location.pathname;
+    window.history.replaceState(null, "", url);
+  }, [
+    modelFilter,
+    mediaTypeFilter,
+    statusFilter,
+    brandFilter,
+    searchQuery,
+    dateFrom,
+    dateTo,
+  ]);
 
   const buildQuery = useCallback(
     (cursor?: string) => {
       const params = new URLSearchParams();
       if (modelFilter) params.set("model", modelFilter);
       if (mediaTypeFilter) params.set("mediaType", mediaTypeFilter);
+      if (statusFilter) params.set("status", statusFilter);
+      if (brandFilter) params.set("brand", brandFilter);
       if (searchQuery.trim()) params.set("search", searchQuery.trim());
       if (cursor) params.set("cursor", cursor);
       params.set("limit", "30");
       return params.toString();
     },
-    [modelFilter, mediaTypeFilter, searchQuery]
+    [modelFilter, mediaTypeFilter, statusFilter, brandFilter, searchQuery]
   );
 
   const fetchAssets = useCallback(
@@ -327,14 +402,234 @@ export function GalleryClient() {
     }
   };
 
-  const hasFilters = modelFilter || mediaTypeFilter || searchQuery || dateFrom || dateTo;
+  const handleSubmitForReview = async (asset: GalleryAsset) => {
+    try {
+      const res = await fetch(`/api/assets/${asset.id}/transition`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "submit" }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (body.error === "personal_brand_no_review") {
+          toast.error("Personal-brand assets can't be submitted for review.");
+        } else if (body.error === "invalid_transition") {
+          toast.error("Only drafts can be submitted.");
+        } else {
+          toast.error(`Couldn't submit: ${body.error ?? res.statusText}`);
+        }
+        return;
+      }
+      toast.success("Submitted for review");
+      const updated: GalleryAsset = { ...asset, status: "in_review" };
+      setAssets((prev) => prev.map((a) => (a.id === asset.id ? updated : a)));
+      setSelectedAsset(updated);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("opencauldron:review-changed"));
+      }
+    } catch {
+      toast.error("Network error");
+    }
+  };
+
+  const isAdmin = me.role === "owner" || me.role === "admin";
+
+  /** Brands the caller is `creator+` on (admin override sees every brand). */
+  const reassignDestinations = useMemo(() => {
+    if (!selectedAsset) return [] as AssetBrand[];
+    return allBrands.filter((b) => {
+      if (b.isPersonal) return false;
+      if (b.id === selectedAsset.brandId) return false;
+      if (isAdmin) return true;
+      const role = me.brandRoles[b.id];
+      return role === "brand_manager" || role === "creator";
+    });
+  }, [allBrands, isAdmin, me.brandRoles, selectedAsset]);
+
+  /** Server-side is authoritative; this only hides the button when there's no
+   *  chance the call would succeed. */
+  const canReassignSelected = useMemo(() => {
+    if (!selectedAsset) return false;
+    if (selectedAsset.status === "approved") return false;
+    if (!selectedAsset.brandId) return false;
+    if (selectedAsset.userId && me.userId && selectedAsset.userId === me.userId) {
+      return true;
+    }
+    if (isAdmin) return true;
+    return me.brandRoles[selectedAsset.brandId] === "brand_manager";
+  }, [isAdmin, me.brandRoles, me.userId, selectedAsset]);
+
+  async function handleReassign() {
+    if (!selectedAsset || !reassignTargetBrandId) return;
+    setReassigning(true);
+    try {
+      const res = await fetch(`/api/assets/${selectedAsset.id}/reassign-brand`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ brandId: reassignTargetBrandId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const map: Record<string, string> = {
+          approved_immutable_fork_required:
+            "Approved assets must be forked, not moved.",
+          target_must_be_real_brand: "Personal brands can't be a destination.",
+          target_same_as_source: "Asset is already on that brand.",
+          cross_workspace_move_forbidden:
+            "Can't move assets between workspaces.",
+          forbidden: "You don't have permission to move this asset.",
+          asset_not_found: "Asset no longer exists.",
+          target_brand_not_found: "Destination brand no longer exists.",
+        };
+        toast.error(map[body.error] ?? `Couldn't move: ${body.error ?? res.statusText}`);
+        return;
+      }
+      const targetBrand = allBrands.find((b) => b.id === reassignTargetBrandId);
+      const brandStub: AssetBrand | null = targetBrand
+        ? {
+            id: targetBrand.id,
+            name: targetBrand.name,
+            color: targetBrand.color,
+            isPersonal: targetBrand.isPersonal,
+          }
+        : null;
+      toast.success(`Moved to ${targetBrand?.name ?? "brand"}.`);
+      setAssets((prev) =>
+        prev.map((a) =>
+          a.id === selectedAsset.id
+            ? {
+                ...a,
+                brandId: reassignTargetBrandId,
+                status: "draft",
+                brand: brandStub,
+                brands: brandStub ? [brandStub] : [],
+              }
+            : a
+        )
+      );
+      setSelectedAsset((prev) =>
+        prev && prev.id === selectedAsset.id
+          ? {
+              ...prev,
+              brandId: reassignTargetBrandId,
+              status: "draft",
+              brand: brandStub,
+              brands: brandStub ? [brandStub] : [],
+            }
+          : prev
+      );
+      // /brands/[slug]/gallery locks the brand filter — when we move OUT of
+      // that brand, the asset would disappear on next refetch anyway. Drop it
+      // now so the grid stays coherent.
+      if (lockedBrandId && reassignTargetBrandId !== lockedBrandId) {
+        setAssets((prev) => prev.filter((a) => a.id !== selectedAsset.id));
+        setSelectedAsset(null);
+      }
+      setReassignOpen(false);
+      setReassignTargetBrandId("");
+    } catch {
+      toast.error("Network error");
+    } finally {
+      setReassigning(false);
+    }
+  }
+
+  const handleFork = async (asset: GalleryAsset) => {
+    try {
+      const res = await fetch(`/api/assets/${asset.id}/fork`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (body.error === "fork_requires_approved") {
+          toast.error("Only approved assets can be forked.");
+        } else {
+          toast.error(`Couldn't fork: ${body.error ?? res.statusText}`);
+        }
+        return;
+      }
+      const data = (await res.json()) as {
+        asset: { id: string; brandId: string | null };
+      };
+      toast.success("Forked — opening editor");
+      const params = new URLSearchParams({
+        prompt: asset.prompt,
+        model: asset.model,
+        mediaType: asset.mediaType,
+        forkOf: data.asset.id,
+      });
+      if (data.asset.brandId) params.set("brandId", data.asset.brandId);
+      router.push(`/generate?${params.toString()}`);
+    } catch {
+      toast.error("Network error");
+    }
+  };
+
+  const hasFilters =
+    !!modelFilter ||
+    !!mediaTypeFilter ||
+    !!statusFilter ||
+    (!!brandFilter && !lockedBrandId) ||
+    !!searchQuery ||
+    !!dateFrom ||
+    !!dateTo;
   const clearFilters = () => {
     setModelFilter("");
     setMediaTypeFilter("");
+    setStatusFilter("");
+    if (!lockedBrandId) setBrandFilter("");
     setSearchQuery("");
     setDateFrom("");
     setDateTo("");
   };
+
+  const activeBrandOption = useMemo(
+    () => allBrands.find((b) => b.id === brandFilter) ?? null,
+    [allBrands, brandFilter]
+  );
+
+  const handleUploaded = useCallback(
+    (uploaded: UploadedAsset) => {
+      const brand = allBrands.find((b) => b.id === uploaded.brandId) ?? null;
+      const fresh: GalleryAsset = {
+        id: uploaded.id,
+        userId: "",
+        brandId: uploaded.brandId,
+        status: uploaded.status,
+        parentAssetId: null,
+        mediaType: uploaded.mediaType,
+        model: "upload",
+        provider: "upload",
+        prompt: "",
+        enhancedPrompt: null,
+        parameters: null,
+        url: uploaded.url,
+        thumbnailUrl: uploaded.thumbnailUrl,
+        width: uploaded.width,
+        height: uploaded.height,
+        fileSize: uploaded.fileSize,
+        costEstimate: 0,
+        duration: null,
+        hasAudio: null,
+        createdAt: uploaded.createdAt,
+        brand: brand
+          ? { id: brand.id, name: brand.name, color: brand.color, isPersonal: brand.isPersonal }
+          : null,
+        brands: brand ? [brand] : [],
+        tags: [],
+        user: { name: null, email: null, image: null },
+      };
+      setAssets((prev) => [fresh, ...prev]);
+    },
+    [allBrands]
+  );
+
+  function openUpload() {
+    if (!uploadBrandId) {
+      setUploadBrandId(brandFilter || allBrands[0]?.id || "");
+    }
+    setUploadOpen(true);
+  }
 
   return (
     <div className="space-y-4">
@@ -357,6 +652,49 @@ export function GalleryClient() {
             </SelectContent>
           </Select>
         </div>
+
+        <div className="w-40">
+          <Select
+            value={statusFilter}
+            onValueChange={(v) => setStatusFilter((v as AssetStatus | "") ?? "")}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">All Statuses</SelectItem>
+              {ASSET_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {STATUS_LABELS[s]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {allBrands.length > 0 && !lockedBrandId && (
+          <div className="w-44">
+            <Select
+              value={brandFilter}
+              onValueChange={(v) => setBrandFilter(v ?? "")}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="All Brands" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">All Brands</SelectItem>
+                {allBrands.map((b) => (
+                  <SelectItem key={b.id} value={b.id}>
+                    <span className="flex items-center gap-2">
+                      <BrandMark brand={b} size="xs" />
+                      {b.name}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         <div className="w-44">
           <Select
@@ -411,6 +749,18 @@ export function GalleryClient() {
             Clear
           </Button>
         )}
+
+        <div className="ml-auto">
+          <Button
+            variant="default"
+            size="sm"
+            onClick={openUpload}
+            disabled={allBrands.length === 0}
+          >
+            <Upload className="size-3.5 mr-1" />
+            Upload
+          </Button>
+        </div>
       </div>
 
       {/* Loading State */}
@@ -426,13 +776,24 @@ export function GalleryClient() {
         </div>
       )}
 
-      {/* Empty State */}
+      {/* Empty State (T114) — distinguishes "filtered down to nothing" from
+          "you don't have access to anything in this brand". */}
       {!loading && assets.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-20 text-center">
           <ImageIcon className="size-12 text-muted-foreground/50 mb-4" />
-          <h3 className="text-lg font-medium">No assets found</h3>
+          <h3 className="text-lg font-medium">
+            {brandFilter && allBrands.length > 0 && !activeBrandOption
+              ? "No access to this brand"
+              : hasFilters
+              ? "No assets match these filters"
+              : "No assets yet"}
+          </h3>
           <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-            {hasFilters
+            {brandFilter && allBrands.length > 0 && !activeBrandOption
+              ? "Ask a brand manager to add you, then refresh."
+              : brandFilter && activeBrandOption
+              ? `Nothing in ${activeBrandOption.name} matches the current filters yet.`
+              : hasFilters
               ? "Try adjusting your filters or search query."
               : "Generate some images or videos to see them here."}
           </p>
@@ -477,41 +838,130 @@ export function GalleryClient() {
       <Dialog
         open={!!selectedAsset}
         onOpenChange={(open) => {
-          if (!open) setSelectedAsset(null);
+          if (!open) {
+            setSelectedAsset(null);
+            setReassignOpen(false);
+            setReassignTargetBrandId("");
+          }
         }}
       >
         {selectedAsset && (
-          <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
+          <DialogContent className="sm:max-w-6xl h-[92vh] max-h-[920px] flex flex-col gap-0 p-0 overflow-hidden">
+            <DialogHeader className="px-6 py-4 border-b shrink-0 pr-12">
               <DialogTitle>Asset Details</DialogTitle>
               <DialogDescription>
                 Generated with {getModelLabel(selectedAsset.model)}
               </DialogDescription>
             </DialogHeader>
 
-            <div className="grid gap-6 md:grid-cols-[1fr_300px]">
-              {/* Media */}
-              <div className="relative aspect-auto min-h-[300px] overflow-hidden rounded-lg bg-muted">
+            <div className="grid flex-1 min-h-0 md:grid-cols-[minmax(0,1fr)_340px]">
+              {/* Media — fills available space; image scales to its own aspect
+                  ratio via object-contain. No fixed min-height, so when the
+                  image is short-and-wide we don't get dark padding above/below. */}
+              <div className="relative flex items-center justify-center overflow-hidden bg-muted/40">
                 {selectedAsset.mediaType === "video" ? (
                   <video
                     src={selectedAsset.url}
                     controls
                     autoPlay
                     muted
-                    className="h-full w-full object-contain rounded-lg"
+                    className="max-h-full max-w-full object-contain"
                   />
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={selectedAsset.url}
                     alt={selectedAsset.prompt}
-                    className="h-full w-full object-contain"
+                    className="max-h-full max-w-full object-contain"
                   />
                 )}
               </div>
 
-              {/* Metadata Panel */}
-              <div className="space-y-4">
+              {/* Metadata Panel — scrolls independently so the image stays
+                  fully visible no matter how much metadata there is.
+                  Order: identity → context → state → content → details. */}
+              <div className="space-y-4 overflow-y-auto border-t md:border-t-0 md:border-l p-6">
+                {/* Creator — identity at the top, with avatar */}
+                <div className="flex items-center gap-3">
+                  <Avatar className="h-9 w-9">
+                    <AvatarImage src={selectedAsset.user.image ?? undefined} />
+                    <AvatarFallback className="text-xs">
+                      {selectedAsset.user.name?.charAt(0)?.toUpperCase() ?? "?"}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">
+                      {selectedAsset.user.name ?? selectedAsset.user.email ?? "Unknown"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {new Date(selectedAsset.createdAt).toLocaleDateString(
+                        undefined,
+                        {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        }
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Brand — ownership context */}
+                {selectedAsset.brand && (
+                  <div>
+                    <span
+                      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium"
+                      style={{
+                        backgroundColor: `${selectedAsset.brand.color}20`,
+                        borderColor: `${selectedAsset.brand.color}60`,
+                        color: selectedAsset.brand.color,
+                      }}
+                    >
+                      <BrandMark brand={selectedAsset.brand} size="xs" />
+                      {selectedAsset.brand.name}
+                      {selectedAsset.brand.isPersonal ? " (Personal)" : ""}
+                    </span>
+                  </div>
+                )}
+
+                {/* Status + Model + Provider — state badges */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {selectedAsset.status && (
+                    <StatusBadge status={selectedAsset.status} size="md" />
+                  )}
+                  <Badge variant="secondary">
+                    {getModelLabel(selectedAsset.model)}
+                  </Badge>
+                  <Badge variant="outline">{PROVIDER_LABELS[selectedAsset.provider] ?? selectedAsset.provider}</Badge>
+                  {selectedAsset.mediaType === "video" && (
+                    <Badge variant="outline" className="gap-1">
+                      <Video className="size-3" />
+                      Video
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Video-only metadata sits with the badges */}
+                {selectedAsset.mediaType === "video" && (selectedAsset.duration || selectedAsset.hasAudio) && (
+                  <div className="flex gap-3">
+                    {selectedAsset.duration && (
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                        <Clock className="size-3.5" />
+                        {selectedAsset.duration}s
+                      </div>
+                    )}
+                    {selectedAsset.hasAudio && (
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                        <Volume2 className="size-3.5" />
+                        Audio
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Prompt — main content */}
                 <div>
                   <h4 className="text-sm font-medium text-muted-foreground mb-1">
                     Prompt
@@ -531,59 +981,6 @@ export function GalleryClient() {
                     </p>
                   </div>
                 )}
-
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="secondary">
-                    {getModelLabel(selectedAsset.model)}
-                  </Badge>
-                  <Badge variant="outline">{PROVIDER_LABELS[selectedAsset.provider] ?? selectedAsset.provider}</Badge>
-                  {selectedAsset.mediaType === "video" && (
-                    <Badge variant="outline" className="gap-1">
-                      <Video className="size-3" />
-                      Video
-                    </Badge>
-                  )}
-                </div>
-
-                {/* Video metadata */}
-                {selectedAsset.mediaType === "video" && (
-                  <div className="flex gap-3">
-                    {selectedAsset.duration && (
-                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                        <Clock className="size-3.5" />
-                        {selectedAsset.duration}s
-                      </div>
-                    )}
-                    {selectedAsset.hasAudio && (
-                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                        <Volume2 className="size-3.5" />
-                        Audio
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {(() => {
-                  const params = selectedAsset.parameters;
-                  if (!params) return null;
-                  const entries = Object.entries(params).filter(
-                    ([key, v]) => v != null && v !== "" && key !== "imageInput" && key !== "loras"
-                  );
-                  return entries.length > 0 ? (
-                    <div>
-                      <h4 className="text-sm font-medium text-muted-foreground mb-1">
-                        Parameters
-                      </h4>
-                      <div className="flex flex-wrap gap-1">
-                        {entries.map(([key, value]) => (
-                          <Badge key={key} variant="outline" className="text-xs">
-                            {key}: {String(value)}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null;
-                })()}
 
                 {normalizeImageInputs(selectedAsset.parameters?.imageInput).length > 0 && (
                   <div>
@@ -610,6 +1007,28 @@ export function GalleryClient() {
                   </div>
                 )}
 
+                {(() => {
+                  const params = selectedAsset.parameters;
+                  if (!params) return null;
+                  const entries = Object.entries(params).filter(
+                    ([key, v]) => v != null && v !== "" && key !== "imageInput" && key !== "loras"
+                  );
+                  return entries.length > 0 ? (
+                    <div>
+                      <h4 className="text-sm font-medium text-muted-foreground mb-1">
+                        Parameters
+                      </h4>
+                      <div className="flex flex-wrap gap-1">
+                        {entries.map(([key, value]) => (
+                          <Badge key={key} variant="outline" className="text-xs">
+                            {key}: {String(value)}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null;
+                })()}
+
                 {(selectedAsset.width || selectedAsset.height) && (
                   <div>
                     <h4 className="text-sm font-medium text-muted-foreground mb-1">
@@ -623,61 +1042,6 @@ export function GalleryClient() {
                         </span>
                       )}
                     </p>
-                  </div>
-                )}
-
-                <div>
-                  <h4 className="text-sm font-medium text-muted-foreground mb-1">
-                    Creator
-                  </h4>
-                  <p className="text-sm">
-                    {selectedAsset.user.name ?? selectedAsset.user.email ?? "Unknown"}
-                  </p>
-                </div>
-
-                <div>
-                  <h4 className="text-sm font-medium text-muted-foreground mb-1">
-                    Created
-                  </h4>
-                  <p className="text-sm">
-                    {new Date(selectedAsset.createdAt).toLocaleDateString(
-                      undefined,
-                      {
-                        year: "numeric",
-                        month: "long",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      }
-                    )}
-                  </p>
-                </div>
-
-                {allBrands.length > 0 && (
-                  <div>
-                    <h4 className="text-sm font-medium text-muted-foreground mb-1">
-                      Brand
-                    </h4>
-                    <div className="flex flex-wrap gap-1.5">
-                      {allBrands.map((brand) => {
-                        const isActive = selectedAsset.brands.some((b) => b.id === brand.id);
-                        return (
-                          <button
-                            key={brand.id}
-                            onClick={() => toggleBrand(selectedAsset, brand.id)}
-                            className="flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium cursor-pointer transition-all hover:opacity-80 hover:scale-105"
-                            style={{
-                              backgroundColor: isActive ? `${brand.color}20` : undefined,
-                              borderColor: isActive ? `${brand.color}60` : undefined,
-                              color: isActive ? brand.color : undefined,
-                            }}
-                          >
-                            {isActive ? <Check className="h-3 w-3" /> : <Tag className="h-3 w-3" />}
-                            {brand.name}
-                          </button>
-                        );
-                      })}
-                    </div>
                   </div>
                 )}
 
@@ -698,7 +1062,106 @@ export function GalleryClient() {
               </div>
             </div>
 
-            <DialogFooter>
+            {reassignOpen && (
+              <div className="border-t bg-muted/40 p-4 space-y-3 shrink-0">
+                <div>
+                  <h4 className="text-sm font-medium">Move to brand</h4>
+                  <p className="text-xs text-muted-foreground">
+                    The asset moves in place — no duplicate, same id.
+                  </p>
+                </div>
+                <Select
+                  value={reassignTargetBrandId}
+                  onValueChange={(v) => setReassignTargetBrandId(v ?? "")}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Pick a destination brand…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {reassignDestinations.length === 0 ? (
+                      <SelectItem value="__none" disabled>
+                        No eligible brands
+                      </SelectItem>
+                    ) : (
+                      reassignDestinations.map((b) => (
+                        <SelectItem key={b.id} value={b.id}>
+                          <span className="flex items-center gap-2">
+                            <BrandMark brand={b} size="xs" />
+                            {b.name}
+                          </span>
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+                {selectedAsset.status === "in_review" && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400">
+                    Moving this asset will reset its status to draft and
+                    require resubmission.
+                  </p>
+                )}
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setReassignOpen(false);
+                      setReassignTargetBrandId("");
+                    }}
+                    disabled={reassigning}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleReassign}
+                    disabled={!reassignTargetBrandId || reassigning}
+                  >
+                    {reassigning ? (
+                      <Loader2 className="size-4 animate-spin mr-1" />
+                    ) : null}
+                    Move
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <DialogFooter className="m-0 shrink-0 flex-wrap">
+              {/* Submit for review (T094) — drafts only */}
+              {selectedAsset.status === "draft" && (
+                <Button
+                  variant="default"
+                  onClick={() => handleSubmitForReview(selectedAsset)}
+                >
+                  <Send className="size-4 mr-1.5" />
+                  Submit for review
+                </Button>
+              )}
+              {/* Edit / Fork (T095) — approved only */}
+              {selectedAsset.status === "approved" && (
+                <Button
+                  variant="default"
+                  onClick={() => handleFork(selectedAsset)}
+                >
+                  <GitFork className="size-4 mr-1.5" />
+                  Edit / Fork
+                </Button>
+              )}
+              {/* Move to brand… — creator+, brand_manager on source, or
+                  workspace admin. Hidden for approved (fork-required) and
+                  while the inline picker is already open. */}
+              {canReassignSelected && !reassignOpen && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setReassignTargetBrandId(reassignDestinations[0]?.id ?? "");
+                    setReassignOpen(true);
+                  }}
+                >
+                  <ArrowRightLeft className="size-4 mr-1.5" />
+                  Move to brand…
+                </Button>
+              )}
               {/* Save as Brew */}
               <Button
                 variant="outline"
@@ -794,6 +1257,54 @@ export function GalleryClient() {
               )}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Upload Dialog (T122) — brand picker + dropzone */}
+      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-5 w-5" />
+              Upload to gallery
+            </DialogTitle>
+            <DialogDescription>
+              Drop images or short videos here. Up to 50MB per file. New
+              uploads land as drafts on the brand you pick.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="upload-brand">Brand</Label>
+              <Select
+                value={uploadBrandId}
+                onValueChange={(v) => setUploadBrandId(v ?? "")}
+              >
+                <SelectTrigger id="upload-brand" className="w-full">
+                  <SelectValue placeholder="Select a brand…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allBrands.map((b) => (
+                    <SelectItem key={b.id} value={b.id}>
+                      <span className="flex items-center gap-2">
+                        <BrandMark brand={b} size="xs" />
+                        {b.name}
+                        {b.isPersonal && (
+                          <span className="ml-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                            personal
+                          </span>
+                        )}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <UploadDropzone
+              brandId={uploadBrandId || null}
+              onUploaded={handleUploaded}
+            />
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -894,22 +1405,27 @@ function GalleryCard({
           loading="lazy"
         />
 
-        {/* Brand tags — always visible */}
-        {asset.brands.length > 0 && (
-          <div className="absolute top-2 left-2 flex flex-wrap gap-1 z-10">
-            {asset.brands.map((brand) => (
-              <span
-                key={brand.id}
-                className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold backdrop-blur-sm border"
-                style={{
-                  backgroundColor: `${brand.color}40`,
-                  borderColor: `${brand.color}60`,
-                  color: "white",
-                }}
-              >
-                {brand.name}
-              </span>
-            ))}
+        {/* Brand tag — top-left, single brand from FK (FR-009). */}
+        {asset.brand && (
+          <div className="absolute top-2 left-2 z-10">
+            <span
+              className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold backdrop-blur-sm border"
+              style={{
+                backgroundColor: `${asset.brand.color}40`,
+                borderColor: `${asset.brand.color}60`,
+                color: "white",
+              }}
+            >
+              {asset.brand.name}
+            </span>
+          </div>
+        )}
+
+        {/* Status badge — top-right (FR-010). Hidden for legacy assets that
+            haven't been backfilled yet (status === null). */}
+        {asset.status && (
+          <div className="absolute top-2 right-2 z-10">
+            <StatusBadge status={asset.status} />
           </div>
         )}
 
@@ -930,9 +1446,10 @@ function GalleryCard({
               </div>
             )}
 
-            {/* Audio indicator */}
+            {/* Audio indicator — moved to bottom-left so the status badge owns
+                the top-right slot. */}
             {asset.hasAudio && (
-              <div className="absolute top-2 right-2">
+              <div className="absolute bottom-2 left-2">
                 <Volume2 className="size-3.5 text-white drop-shadow-md" />
               </div>
             )}
@@ -952,19 +1469,18 @@ function GalleryCard({
               >
                 {getModelLabel(asset.model)}
               </Badge>
-              {asset.brands.map((brand) => (
+              {asset.brand && (
                 <span
-                  key={brand.id}
                   className="rounded-full px-1.5 py-0.5 text-[9px] font-medium border"
                   style={{
-                    backgroundColor: `${brand.color}30`,
-                    borderColor: `${brand.color}50`,
-                    color: brand.color,
+                    backgroundColor: `${asset.brand.color}30`,
+                    borderColor: `${asset.brand.color}50`,
+                    color: asset.brand.color,
                   }}
                 >
-                  {brand.name}
+                  {asset.brand.name}
                 </span>
-              ))}
+              )}
             </div>
             <Avatar className="h-5 w-5 shrink-0 ml-2 ring-1 ring-white/30">
               <AvatarImage src={asset.user.image ?? undefined} />

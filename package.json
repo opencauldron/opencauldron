@@ -19,7 +19,9 @@
     "test:e2e": "E2E_ENABLED=true vitest run --config vitest.e2e.config.ts",
     "db:push": "drizzle-kit push",
     "db:migrate": "drizzle-kit migrate",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "bootstrap": "tsx scripts/bootstrap-self-hosted.ts",
+    "verify-migration": "tsx scripts/verify-migration.ts"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.1",

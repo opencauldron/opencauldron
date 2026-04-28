@@ -46,21 +46,34 @@ export async function deleteFile(key: string): Promise<void> {
 }
 
 /**
- * Extract the R2 key from a stored URL (signed or public) and return a fresh URL.
- * Returns null if the URL format is unrecognized.
+ * Re-resolve a stored URL through the active backend. Handles three shapes:
+ *   - Local relative URLs:  /api/uploads/<key>          → key
+ *   - R2 signed URLs:       https://<host>/<bucket>/<key>?... → key
+ *   - R2 public URLs:       https://<R2_PUBLIC_URL>/<key>     → key
+ *
+ * Used to refresh URLs that may have been captured at write-time (e.g. an
+ * imageInput stored in `assets.parameters`) so they don't 403 once a presign
+ * expires. Returns null if the URL format is unrecognized — caller should
+ * fall back to the original URL in that case.
  */
 export async function refreshUrl(storedUrl: string): Promise<string | null> {
   try {
+    // Local backend stores relative URLs like `/api/uploads/<key>`.
+    if (storedUrl.startsWith("/api/uploads/")) {
+      const key = storedUrl.slice("/api/uploads/".length).split("?")[0];
+      if (!key) return null;
+      return getAssetUrl(key);
+    }
+
     const url = new URL(storedUrl);
-    // Path is /{bucket}/{key} for signed URLs or /{key} for public URLs
     const pathParts = url.pathname.split("/").filter(Boolean);
-    // For signed R2 URLs the first path segment is the bucket name
     const bucket = process.env.R2_BUCKET_NAME;
     let key: string;
     if (bucket && pathParts[0] === bucket) {
+      // Signed R2 URL — first segment is the bucket
       key = pathParts.slice(1).join("/");
     } else {
-      // Public URL or local — key is the full path
+      // Public R2 URL — key is the full path
       key = pathParts.join("/");
     }
     if (!key) return null;
@@ -69,6 +82,28 @@ export async function refreshUrl(storedUrl: string): Promise<string | null> {
     console.error("[refreshUrl] Failed to refresh URL:", err);
     return null;
   }
+}
+
+/**
+ * Re-sign all URLs in a stringified `imageInput` value (single string or
+ * string[]). Falls back to the original URL when refresh fails — better a
+ * stale link than a missing one.
+ */
+export async function refreshImageInputUrls(
+  imageInput: unknown
+): Promise<unknown> {
+  if (!imageInput) return imageInput;
+  if (typeof imageInput === "string") {
+    return (await refreshUrl(imageInput)) ?? imageInput;
+  }
+  if (Array.isArray(imageInput)) {
+    return Promise.all(
+      imageInput.map(async (v) =>
+        typeof v === "string" ? ((await refreshUrl(v)) ?? v) : v
+      )
+    );
+  }
+  return imageInput;
 }
 
 /**

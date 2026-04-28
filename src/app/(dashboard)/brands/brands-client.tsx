@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Plus, Pencil, Trash2, Loader2, Tag } from "lucide-react";
 import { toast } from "sonner";
+import { BrandMark } from "@/components/brand-mark";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,6 +31,9 @@ interface Brand {
   createdBy: string | null;
   createdAt: string;
   assetCount: number;
+  isPersonal?: boolean;
+  logoUrl?: string | null;
+  ownerImage?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -358,9 +362,14 @@ function BrandCard({
   return (
     <div className="group flex items-center justify-between rounded-lg border p-4 transition-colors hover:bg-muted/30">
       <div className="flex items-center gap-3 min-w-0">
-        <span
-          className="size-3 shrink-0 rounded-full"
-          style={{ backgroundColor: brand.color }}
+        <BrandMark
+          brand={{
+            name: brand.name,
+            color: brand.color,
+            isPersonal: brand.isPersonal,
+            logoUrl: brand.logoUrl,
+          }}
+          size="md"
         />
         <div className="min-w-0">
           <p className="text-sm font-medium truncate">{brand.name}</p>

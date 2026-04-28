@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import {
   Wand2,
@@ -54,6 +55,8 @@ import {
   ImagePlus,
 } from "lucide-react";
 import { toast } from "sonner";
+import { BrandSelector } from "@/components/brand-selector";
+import { BrandMark } from "@/components/brand-mark";
 import {
   Tooltip,
   TooltipTrigger,
@@ -107,6 +110,12 @@ interface BrandOption {
   id: string;
   name: string;
   color: string;
+  slug: string | null;
+  isPersonal: boolean;
+  ownerId: string | null;
+  videoEnabled: boolean;
+  logoUrl?: string | null;
+  ownerImage?: string | null;
 }
 
 /** Logo path per model card (variants share the parent's logo) */
@@ -228,9 +237,26 @@ export function GenerateClient({
   const [showModelSelector, setShowModelSelector] = useState(true);
   const [imageLoaded, setImageLoaded] = useState(false);
 
-  // Brands
+  // Brands (FR-007 / FR-027)
   const [brands, setBrands] = useState<BrandOption[]>([]);
   const [assetBrands, setAssetBrands] = useState<string[]>([]);
+  // Brand under which the next generation will be created (US2 / FR-004).
+  const [activeBrandId, setActiveBrandId] = useState<string | null>(null);
+  // Workspace-level video capability for the current user (FR-034).
+  const [canGenerateVideoForUser, setCanGenerateVideoForUser] = useState<boolean>(true);
+  // Active brand's kit details (US7) — fetched from /api/brands/[id] only when
+  // the active brand changes. Null until loaded; null is also valid for an
+  // empty kit (no prefix/suffix/banned terms).
+  const [activeBrandKit, setActiveBrandKit] = useState<{
+    promptPrefix: string | null;
+    promptSuffix: string | null;
+    bannedTerms: string[];
+    defaultLoraId: string | null;
+    defaultLoraIds: string[];
+    anchorReferenceIds: string[];
+  } | null>(null);
+  // FR-015 override toggle. Resets when active brand changes.
+  const [brandKitOverride, setBrandKitOverride] = useState<boolean>(false);
 
   useEffect(() => {
     fetch("/api/brands")
@@ -239,7 +265,66 @@ export function GenerateClient({
         if (Array.isArray(data)) setBrands(data);
       })
       .catch(() => {});
+    fetch("/api/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data && typeof data.canGenerateVideo === "boolean") {
+          setCanGenerateVideoForUser(data.canGenerateVideo);
+        }
+      })
+      .catch(() => {});
   }, []);
+
+  // Pull the active brand's kit when it changes. Personal brands and the
+  // null state are no-ops — there's nothing to inject.
+  useEffect(() => {
+    setBrandKitOverride(false);
+    if (!activeBrandId || activeBrandId === "personal") {
+      setActiveBrandKit(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/brands/${activeBrandId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        setActiveBrandKit({
+          promptPrefix: data.promptPrefix ?? null,
+          promptSuffix: data.promptSuffix ?? null,
+          bannedTerms: Array.isArray(data.bannedTerms) ? data.bannedTerms : [],
+          defaultLoraId: data.defaultLoraId ?? null,
+          defaultLoraIds: Array.isArray(data.defaultLoraIds) ? data.defaultLoraIds : [],
+          anchorReferenceIds: Array.isArray(data.anchorReferenceIds) ? data.anchorReferenceIds : [],
+        });
+      })
+      .catch(() => setActiveBrandKit(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [activeBrandId]);
+
+  const activeBrand = brands.find((b) => b.id === activeBrandId) ?? null;
+  // The kit is only "active" when the brand is non-Personal AND has at least
+  // one injectable field. Personal brands skip the panel since their kit is
+  // empty by definition (FR-006).
+  const hasActiveKit =
+    !!activeBrand &&
+    !activeBrand.isPersonal &&
+    !!activeBrandKit &&
+    (!!activeBrandKit.promptPrefix?.trim() ||
+      !!activeBrandKit.promptSuffix?.trim() ||
+      activeBrandKit.bannedTerms.length > 0 ||
+      activeBrandKit.anchorReferenceIds.length > 0 ||
+      !!activeBrandKit.defaultLoraId ||
+      activeBrandKit.defaultLoraIds.length > 0);
+  const videoTabDisabled =
+    !canGenerateVideoForUser ||
+    (!!activeBrand && !activeBrand.isPersonal && !activeBrand.videoEnabled);
+  const videoTabReason = !canGenerateVideoForUser
+    ? "Your studio admin hasn't granted video access."
+    : activeBrand && !activeBrand.isPersonal && !activeBrand.videoEnabled
+    ? `Video generation is disabled for ${activeBrand.name}.`
+    : null;
 
   // Image input state (multi-reference, up to 4)
   const MAX_REFERENCE_IMAGES = 4;
@@ -249,18 +334,52 @@ export function GenerateClient({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canAddMoreImages = imageInputs.length < MAX_REFERENCE_IMAGES;
 
-  // Hydrate from query params (e.g. from gallery "Animate" or references "Use")
+  // Hydrate from query params (e.g. from Home action tiles, gallery
+  // "Animate", or references "Use"). Order matters: resolve `?model=` first
+  // because the model dictates mediaType — that prevents the media-type
+  // validation effect (~L486) from clobbering our prefilled selection.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+
+    const modelParam = params.get("model");
+    const mediaParam = params.get("mediaType");
+
+    if (modelParam) {
+      const inImage = imageModels.some(
+        (m) => m.id === modelParam || m.variants?.some((v) => v.id === modelParam),
+      );
+      const inVideo = videoModels.some(
+        (m) => m.id === modelParam || m.variants?.some((v) => v.id === modelParam),
+      );
+      if (inImage) {
+        setMediaType("image");
+        setSelectedModel(modelParam as typeof selectedModel);
+      } else if (inVideo) {
+        setMediaType("video");
+        setSelectedModel(modelParam as typeof selectedModel);
+      } else if (mediaParam === "video") {
+        setMediaType("video");
+      }
+    } else if (mediaParam === "video") {
+      setMediaType("video");
+    }
+
     const imgInput = params.get("imageInput");
     if (imgInput) {
       setImageInputs([imgInput]);
       setImageInputPreviews([imgInput]);
     }
-    const mediaParam = params.get("mediaType");
-    if (mediaParam === "video") setMediaType("video");
+
     const promptParam = params.get("prompt");
     if (promptParam) setPrompt(promptParam);
+
+    // `?focus=imageInput` from the "Image → image" / "Animate" tiles auto-
+    // opens the references picker so the next click is "pick an image" not
+    // "find the upload button".
+    const focusParam = params.get("focus");
+    if (focusParam === "imageInput" && !imgInput) {
+      handleRefPickerOpen();
+    }
   }, []);
 
   // Reference picker state
@@ -580,7 +699,14 @@ export function GenerateClient({
         model: selectedModel,
         aspectRatio,
         style: style || undefined,
+        brandId: activeBrandId ?? "personal",
       };
+
+      // FR-015 — only send the override flag when it's actually on AND there
+      // was something to override. Saves the server an unnecessary kit lookup.
+      if (brandKitOverride && hasActiveKit) {
+        body.brandKitOverride = true;
+      }
 
       if (imageInputs.length > 0) body.imageInput = imageInputs;
 
@@ -834,7 +960,13 @@ export function GenerateClient({
                 </Badge>
               )}
             </TabsTrigger>
-            <TabsTrigger value="video" className="flex-1 gap-1.5" disabled={videoModels.length === 0}>
+            <TabsTrigger
+              value="video"
+              className="flex-1 gap-1.5"
+              disabled={videoModels.length === 0 || videoTabDisabled}
+              title={videoTabReason ?? undefined}
+              aria-disabled={videoTabDisabled}
+            >
               <Video className="h-4 w-4" />
               Video
               {videoModels.length > 0 && (
@@ -845,6 +977,111 @@ export function GenerateClient({
             </TabsTrigger>
           </TabsList>
         </Tabs>
+
+        {/* Brand selector — generation is brand-locked at submit time (US2). */}
+        {brands.length > 0 && (
+          <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-card/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                Generating as
+              </span>
+              <span className="text-xs text-muted-foreground/80">
+                Brand kit (prefix, banned terms, default LoRA) applies on
+                submit. Toggle override below if needed.
+              </span>
+            </div>
+            <div className="w-full sm:w-[280px]">
+              <BrandSelector
+                brands={brands}
+                value={activeBrandId}
+                onChange={setActiveBrandId}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Brand kit applied panel (T131 / US7 / FR-015). */}
+        {hasActiveKit && activeBrandKit && activeBrand && (
+          <div
+            className={cn(
+              "rounded-lg border px-4 py-3 transition-opacity",
+              brandKitOverride
+                ? "border-dashed border-border/40 bg-card/20 opacity-60"
+                : "border-border/60 bg-card/50"
+            )}
+            data-testid="brand-kit-panel"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <BrandMark brand={activeBrand} size="xs" />
+                  {activeBrand.name} brand kit{" "}
+                  <span className="text-muted-foreground/60 normal-case tracking-normal">
+                    {brandKitOverride ? "— overridden" : "— applies on submit"}
+                  </span>
+                </span>
+                <span className="text-xs text-muted-foreground/80">
+                  Prefix, suffix, banned terms, default LoRAs and anchor
+                  references will be injected unless you override.
+                </span>
+              </div>
+              <label className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                <Switch
+                  checked={brandKitOverride}
+                  onCheckedChange={setBrandKitOverride}
+                />
+                Override
+              </label>
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {activeBrandKit.promptPrefix?.trim() && (
+                <KitField label="Prefix" value={activeBrandKit.promptPrefix.trim()} />
+              )}
+              {activeBrandKit.promptSuffix?.trim() && (
+                <KitField label="Suffix" value={activeBrandKit.promptSuffix.trim()} />
+              )}
+              {activeBrandKit.bannedTerms.length > 0 && (
+                <KitField
+                  label={`Banned terms (${activeBrandKit.bannedTerms.length})`}
+                  value={activeBrandKit.bannedTerms.join(", ")}
+                />
+              )}
+              {(activeBrandKit.defaultLoraId ||
+                activeBrandKit.defaultLoraIds.length > 0) && (
+                <KitField
+                  label="Default LoRA"
+                  value={
+                    [
+                      activeBrandKit.defaultLoraId,
+                      ...activeBrandKit.defaultLoraIds.filter(
+                        (l) => l !== activeBrandKit.defaultLoraId
+                      ),
+                    ]
+                      .filter(Boolean)
+                      .join(", ") as string
+                  }
+                />
+              )}
+              {activeBrandKit.anchorReferenceIds.length > 0 && (
+                <KitField
+                  label={`Anchor refs (${activeBrandKit.anchorReferenceIds.length})`}
+                  value="Pinned when no reference image is provided."
+                />
+              )}
+            </div>
+          </div>
+        )}
+
+        {videoTabReason && isVideo && (
+          <div
+            role="alert"
+            className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-200/90"
+          >
+            <strong className="font-medium">Video unavailable.</strong>{" "}
+            {videoTabReason}
+          </div>
+        )}
 
         {/* Prompt Input */}
         <Card className="relative overflow-visible">
@@ -2288,6 +2525,19 @@ export function GenerateClient({
       </DialogContent>
     </Dialog>
     </div>
+    </div>
+  );
+}
+
+function KitField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-border/40 bg-background/40 px-2.5 py-1.5">
+      <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        {label}
+      </div>
+      <div className="mt-0.5 line-clamp-2 text-xs text-foreground/85">
+        {value}
+      </div>
     </div>
   );
 }

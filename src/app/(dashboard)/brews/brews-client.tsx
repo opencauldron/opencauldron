@@ -34,7 +34,7 @@ import {
 import { toast } from "sonner";
 import type { Brew, MyBrew } from "@/types";
 
-type BrewVisibility = "private" | "unlisted" | "public";
+type BrewVisibility = "private" | "unlisted" | "brand" | "public";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -143,26 +143,50 @@ export function BrewsClient() {
 
   const handlePublish = useCallback(async () => {
     if (!publishBrew) return;
+    // FR-042 — visibility transitions write a brew_visibility_log row, so the
+    // dedicated /visibility endpoint is the only path. Map the legacy
+    // `unlisted` selection to `brand` for the contract; the option is hidden
+    // in the picker so this is a defensive shim.
+    const target =
+      publishVisibility === "unlisted"
+        ? ("brand" as const)
+        : (publishVisibility as "private" | "brand" | "public");
     setIsPublishing(true);
     try {
-      const res = await fetch(`/api/brews/${publishBrew.id}`, {
-        method: "PATCH",
+      const res = await fetch(`/api/brews/${publishBrew.id}/visibility`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ visibility: publishVisibility }),
+        body: JSON.stringify({ to: target }),
       });
       if (!res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+        if (data.error === "noop_transition") {
+          toast.message("No change — brew is already at that visibility.");
+          return;
+        }
         toast.error(data.error ?? "Failed to update visibility");
         return;
       }
-      const data = (await res.json()) as { brew: MyBrew };
-      setBrews((prev) => prev.map((b) => (b.id === data.brew.id ? data.brew : b)));
-      setPublishBrew(data.brew);
+      const data = (await res.json()) as {
+        brew: { id: string; visibility: BrewVisibility; slug: string | null };
+      };
+      setBrews((prev) =>
+        prev.map((b) =>
+          b.id === data.brew.id
+            ? { ...b, visibility: data.brew.visibility, slug: data.brew.slug }
+            : b
+        )
+      );
+      setPublishBrew((prev) =>
+        prev && prev.id === data.brew.id
+          ? { ...prev, visibility: data.brew.visibility, slug: data.brew.slug }
+          : prev
+      );
       toast.success(
-        publishVisibility === "private"
+        target === "private"
           ? "Brew set to private"
-          : publishVisibility === "unlisted"
-            ? "Brew is now shareable via link"
+          : target === "brand"
+            ? "Brew shared with your brand"
             : "Brew published to Explore"
       );
     } catch {
@@ -202,6 +226,7 @@ export function BrewsClient() {
     switch (visibility) {
       case "public":
         return <Globe className="h-3 w-3 text-green-500" />;
+      case "brand":
       case "unlisted":
         return <Link className="h-3 w-3 text-yellow-500" />;
       default:
@@ -466,7 +491,7 @@ export function BrewsClient() {
                 <div className="grid gap-2">
                   {([
                     { value: "private", icon: Lock, label: "Private", desc: "Only you can see this brew" },
-                    { value: "unlisted", icon: Link, label: "Unlisted", desc: "Anyone with the link can view" },
+                    { value: "brand", icon: Link, label: "Brand", desc: "Everyone on this brand can use it" },
                     { value: "public", icon: Globe, label: "Public", desc: "Listed on the Explore tab for everyone" },
                   ] as const).map((opt) => (
                     <label

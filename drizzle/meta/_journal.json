@@ -57,6 +57,48 @@
       "when": 1775160270165,
       "tag": "0007_sleepy_mac_gargan",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1777256234143,
+      "tag": "0008_workspace_additive",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1777256234144,
+      "tag": "0009_data_backfill",
+      "breakpoints": false
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1777256234145,
+      "tag": "0010_constraint_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1777256234146,
+      "tag": "0011_studio_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1777256234147,
+      "tag": "0012_brand_logos",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1777388309000,
+      "tag": "0013_personal_brand_name_partial_unique",
+      "breakpoints": true
     }
   ]
 }

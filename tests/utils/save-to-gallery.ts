@@ -82,11 +82,18 @@ export async function generateAndSave(
   // Upload to R2 (image + thumbnail)
   const uploaded = await uploadAsset(result.imageBuffer, userId);
 
+  // Resolve the user's Personal brand for the test fixture (post-agency-DAM).
+  const { resolvePersonalBrandId } = await import("@/lib/workspace/personal");
+  const brandId = await resolvePersonalBrandId(userId);
+
   // Create asset record
   const [asset] = await db
     .insert(assets)
     .values({
       userId,
+      brandId,
+      status: "draft",
+      source: "generation",
       mediaType: "image",
       model: modelId,
       provider: provider.provider,

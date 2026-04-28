@@ -2,9 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { brews, users } from "@/lib/db/schema";
-import { eq, desc, inArray } from "drizzle-orm";
+import { and, eq, desc, inArray, or } from "drizzle-orm";
 import { z } from "zod";
 import { refreshUrl } from "@/lib/storage";
+import { getCurrentWorkspace } from "@/lib/workspace/context";
+import { loadRoleContext } from "@/lib/workspace/permissions";
 
 const createBrewSchema = z.object({
   name: z.string().min(1, "Name is required"),
@@ -26,10 +28,29 @@ export async function GET() {
 
   const userId = session.user.id;
 
+  // FR-041: include brews the user authored AND brand-visible brews on any
+  // brand they belong to. Public brews are surfaced via /api/brews/explore
+  // (kept separate so the user's "My brews" page stays focused).
+  const workspace = await getCurrentWorkspace(userId);
+  let visibilityFilter = eq(brews.userId, userId);
+  if (workspace) {
+    const ctx = await loadRoleContext(userId, workspace.id);
+    const memberBrandIds = Array.from(ctx.brandMemberships.keys());
+    if (memberBrandIds.length > 0) {
+      visibilityFilter = or(
+        eq(brews.userId, userId),
+        and(
+          inArray(brews.brandId, memberBrandIds),
+          eq(brews.visibility, "brand")
+        )
+      )!;
+    }
+  }
+
   const result = await db
     .select()
     .from(brews)
-    .where(eq(brews.userId, userId))
+    .where(visibilityFilter)
     .orderBy(desc(brews.updatedAt));
 
   // Resolve original author names for cloned brews
