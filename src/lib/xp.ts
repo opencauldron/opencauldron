@@ -7,9 +7,9 @@ import {
   badges,
   users,
   assets,
-  assetBrands,
+  brands,
 } from "@/lib/db/schema";
-import { eq, and, sql, gte } from "drizzle-orm";
+import { eq, and, sql, gte, isNotNull } from "drizzle-orm";
 import type { ModelId } from "@/types";
 
 // ============================================================
@@ -217,14 +217,22 @@ export async function checkAndAwardBadges(
     newlyEarned.push(await awardBadge(userId, "inferno"));
   }
 
-  // Brand tagging
+  // Brand tagging — assets attached to a non-Personal brand. The asset_brands
+  // junction was dropped in migration 0010; brand membership is now the single
+  // FK assets.brand_id.
   const [brandStats] = await db
     .select({
-      taggedCount: sql<number>`count(distinct ${assetBrands.assetId})::int`,
+      taggedCount: sql<number>`count(*)::int`,
     })
-    .from(assetBrands)
-    .innerJoin(assets, eq(assetBrands.assetId, assets.id))
-    .where(eq(assets.userId, userId));
+    .from(assets)
+    .innerJoin(brands, eq(assets.brandId, brands.id))
+    .where(
+      and(
+        eq(assets.userId, userId),
+        isNotNull(assets.brandId),
+        eq(brands.isPersonal, false)
+      )
+    );
 
   if (!earned.has("sigil") && brandStats.taggedCount >= 50) {
     newlyEarned.push(await awardBadge(userId, "sigil"));

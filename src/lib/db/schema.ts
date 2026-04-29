@@ -683,3 +683,48 @@ export const assetCollections = pgTable(
   },
   (t) => [primaryKey({ columns: [t.assetId, t.collectionId] })]
 );
+
+// ============================================================
+// Notifications — in-app bell feed, scoped to a workspace.
+// ============================================================
+
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    actorId: uuid("actor_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    type: text("type", {
+      enum: [
+        "asset_submitted",
+        "asset_approved",
+        "asset_rejected",
+        "brand_invite",
+        "workspace_invite",
+        "review_assigned",
+      ],
+    }).notNull(),
+    payload: jsonb("payload")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    href: text("href"),
+    readAt: timestamp("read_at", { mode: "date" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [
+    index("notifications_user_workspace_created_idx").on(
+      t.userId,
+      t.workspaceId,
+      t.createdAt
+    ),
+    index("notifications_user_unread_idx").on(t.userId, t.readAt),
+  ]
+);

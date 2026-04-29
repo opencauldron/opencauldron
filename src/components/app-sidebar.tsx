@@ -48,6 +48,7 @@ import { BrandList } from "./brand-list";
 import { AddBrandDialog } from "./add-brand-dialog";
 import { AboutModal } from "./about-modal";
 import { UserMenuPopover } from "./user-menu-popover";
+import { NotificationsMenuItem } from "./notifications-menu-item";
 import {
   CHANGELOG,
   FULL_CHANGELOG_URL,
@@ -432,6 +433,7 @@ export function AppSidebar({ user, workspaceContext }: AppSidebarProps) {
                 openBugReport={openBugReport}
                 onAboutClick={() => setAboutOpen(true)}
               />
+              <NotificationsMenuItem />
               <WhatsNewMenuItem
                 open={whatsNewOpen}
                 onOpenChange={handleWhatsNewOpenChange}

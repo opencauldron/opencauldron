@@ -6,6 +6,16 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-04-29",
+    title: "In-app notifications",
+    bullets: [
+      "New bell in the sidebar shows submits, approvals, and rejections as they happen",
+      "Unread count pill on the bell, with a 'Mark all read' action in the popover",
+      "Click a notification to jump straight to the brand's review queue",
+      "XP, level-ups, and badge unlocks now toast after every successful generation",
+    ],
+  },
+  {
     date: "2026-04-28",
     title: "Delete brands you no longer need",
     bullets: [

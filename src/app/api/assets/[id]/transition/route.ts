@@ -18,7 +18,13 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { assets } from "@/lib/db/schema";
+import { assets, brands } from "@/lib/db/schema";
+import {
+  createNotification,
+  createNotifications,
+  loadSubmitRecipients,
+  type NotificationInput,
+} from "@/lib/notifications";
 import {
   checkTransitionPermission,
   TransitionError,
@@ -62,6 +68,7 @@ export async function POST(
       userId: assets.userId,
       brandId: assets.brandId,
       status: assets.status,
+      prompt: assets.prompt,
     })
     .from(assets)
     .where(eq(assets.id, id))
@@ -112,6 +119,20 @@ export async function POST(
       action: action as TransitionAction,
       note,
     });
+
+    // Best-effort fan-out — a notification write failure must not roll back
+    // the transition (the audit log is the system of record). We swallow and
+    // log; the bell will just miss this event.
+    void fanOutNotifications({
+      action: action as TransitionAction,
+      actorId: userId,
+      asset: { id: asset.id, userId: asset.userId, prompt: asset.prompt },
+      brand: brandCtx,
+      note,
+    }).catch((err) => {
+      console.error("notifications.fanOut failed", err);
+    });
+
     return NextResponse.json({
       ok: true,
       assetId: result.assetId,
@@ -124,4 +145,78 @@ export async function POST(
     }
     throw err;
   }
+}
+
+interface FanOutInput {
+  action: TransitionAction;
+  actorId: string;
+  asset: { id: string; userId: string; prompt: string };
+  brand: { id: string; workspaceId: string };
+  note?: string;
+}
+
+async function fanOutNotifications(input: FanOutInput): Promise<void> {
+  const { action, actorId, asset, brand, note } = input;
+  if (action !== "submit" && action !== "approve" && action !== "reject") {
+    return;
+  }
+
+  // Brand slug for the review queue href. Fall back to id if unset.
+  const [brandRow] = await db
+    .select({ slug: brands.slug, name: brands.name })
+    .from(brands)
+    .where(eq(brands.id, brand.id))
+    .limit(1);
+  const brandSlug = brandRow?.slug ?? brand.id;
+  const brandName = brandRow?.name ?? null;
+  const reviewHref = `/brands/${brandSlug}/review`;
+  const assetTitle = excerpt(asset.prompt);
+
+  if (action === "submit") {
+    const recipients = await loadSubmitRecipients({
+      actorId,
+      brandId: brand.id,
+      workspaceId: brand.workspaceId,
+    });
+    const inputs: NotificationInput[] = recipients.map((userId) => ({
+      userId,
+      workspaceId: brand.workspaceId,
+      actorId,
+      type: "asset_submitted",
+      payload: {
+        assetId: asset.id,
+        brandId: brand.id,
+        brandName,
+        assetTitle,
+      },
+      href: reviewHref,
+    }));
+    await createNotifications(inputs);
+    return;
+  }
+
+  // approve / reject — notify the uploader if they aren't the actor.
+  if (asset.userId === actorId) return;
+
+  // No dedicated asset-detail page exists yet; link to the brand review queue.
+  await createNotification({
+    userId: asset.userId,
+    workspaceId: brand.workspaceId,
+    actorId,
+    type: action === "approve" ? "asset_approved" : "asset_rejected",
+    payload: {
+      assetId: asset.id,
+      brandId: brand.id,
+      brandName,
+      assetTitle,
+      ...(note ? { note } : {}),
+    },
+    href: reviewHref,
+  });
+}
+
+function excerpt(text: string, max = 80): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= max) return trimmed;
+  return trimmed.slice(0, max - 1) + "…";
 }

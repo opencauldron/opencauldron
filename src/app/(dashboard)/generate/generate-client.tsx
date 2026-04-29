@@ -767,6 +767,17 @@ export function GenerateClient({
         setGeneratedAsset({ ...data.asset, mediaType: "image" });
         setIsGenerating(false);
         toast.success("Image generated!");
+        if (typeof data.xpEarned === "number" && data.xpEarned > 0) {
+          toast.success(`+${data.xpEarned} XP`);
+        }
+        if (typeof data.leveledUp === "number") {
+          toast.success(`Level up! You're now level ${data.leveledUp}.`);
+        }
+        if (Array.isArray(data.newBadges) && data.newBadges.length > 0) {
+          for (const b of data.newBadges) {
+            toast.success(`Badge unlocked: ${b.name}`);
+          }
+        }
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Generation failed");
