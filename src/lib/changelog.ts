@@ -7,6 +7,24 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-04-29",
+    title: "Prompt enhancement is live again",
+    bullets: [
+      "Click ✨ Enhance on the prompt box to rewrite your idea into a more detailed prompt",
+      "Powered by Mistral — set MISTRAL_API_KEY in your env to enable it",
+      "Tuned per model — gpt-image, Imagen, Flux, and video providers get model-specific phrasing tips",
+    ],
+  },
+  {
+    date: "2026-04-29",
+    title: "Cleaner error messages",
+    bullets: [
+      "When a provider rejects a generation, the toast now shows the actual reason instead of the raw API response",
+      "Your prompt and signed asset URLs stay out of error messages",
+      "Applied across every image and video model",
+    ],
+  },
+  {
+    date: "2026-04-29",
     title: "OpenAI image editing",
     bullets: [
       "OpenAI gpt-image models can now edit existing images — drop a reference into Generate and they'll follow your edit prompt directly",
