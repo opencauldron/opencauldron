@@ -35,7 +35,6 @@ import {
   DollarSign,
   ChevronDown,
   ChevronUp,
-  Zap,
   Image as ImageIcon,
   Video,
   Volume2,
@@ -79,6 +78,7 @@ import {
 } from "@/components/ui/popover";
 import type { promptModifiers as PromptModifiersType } from "@/providers/prompt-improver";
 import { LoraBrowser } from "./lora-browser";
+import { PromptToolbar } from "./prompt-toolbar";
 
 interface GenerateClientProps {
   imageModels: ModelInfo[];
@@ -224,18 +224,23 @@ export function GenerateClient({
 
   // Shared state
   const [prompt, setPrompt] = useState("");
-  const [enhancedPrompt, setEnhancedPrompt] = useState("");
+  const [previousPrompt, setPreviousPrompt] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState(models[0]?.id ?? "");
   const [aspectRatio, setAspectRatio] = useState("1:1");
   const [style, setStyle] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [generatedAsset, setGeneratedAsset] = useState<GeneratedAsset | null>(null);
-  const [enhanceMode, setEnhanceMode] = useState<"template" | "llm">("template");
-  const [template, setTemplate] = useState<PromptTemplate>({});
-  const [showEnhancer, setShowEnhancer] = useState(false);
   const [showModelSelector, setShowModelSelector] = useState(true);
   const [imageLoaded, setImageLoaded] = useState(false);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const promptRef = useRef<HTMLTextAreaElement | null>(null);
+  const [shortcutLabel, setShortcutLabel] = useState("Ctrl+E");
+
+  useEffect(() => {
+    const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
+    setShortcutLabel(isMac ? "⌘E" : "Ctrl+E");
+  }, []);
 
   // Brands (FR-007 / FR-027)
   const [brands, setBrands] = useState<BrandOption[]>([]);
@@ -652,11 +657,22 @@ export function GenerateClient({
     setImageInputPreviews((prev) => prev.filter((_, i) => i !== index));
   }
 
-  async function handleEnhance() {
+  function clearUndoTimer() {
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+  }
+
+  async function handleEnhance(
+    mode: "template" | "llm",
+    template: PromptTemplate
+  ) {
     if (!prompt.trim()) {
       toast.error("Enter a prompt first");
       return;
     }
+    const original = prompt;
     setIsEnhancing(true);
     try {
       const res = await fetch("/api/generate/enhance", {
@@ -664,21 +680,42 @@ export function GenerateClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt,
-          mode: enhanceMode,
+          mode,
           model: selectedModel,
-          template: enhanceMode === "template" ? template : undefined,
+          template: mode === "template" ? template : undefined,
         }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setEnhancedPrompt(data.enhanced);
-      toast.success("Prompt enhanced");
+      setPreviousPrompt(original);
+      setPrompt(data.enhanced);
+      clearUndoTimer();
+      undoTimerRef.current = setTimeout(() => {
+        setPreviousPrompt(null);
+        undoTimerRef.current = null;
+      }, 8000);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Enhancement failed");
     } finally {
       setIsEnhancing(false);
     }
   }
+
+  function handleUndoEnhance() {
+    if (previousPrompt === null) return;
+    setPrompt(previousPrompt);
+    setPreviousPrompt(null);
+    clearUndoTimer();
+  }
+
+  function handleDismissUndo() {
+    setPreviousPrompt(null);
+    clearUndoTimer();
+  }
+
+  useEffect(() => {
+    return () => clearUndoTimer();
+  }, []);
 
   async function handleGenerate() {
     if (!prompt.trim()) {
@@ -695,7 +732,6 @@ export function GenerateClient({
     try {
       const body: Record<string, unknown> = {
         prompt,
-        enhancedPrompt: enhancedPrompt || undefined,
         model: selectedModel,
         aspectRatio,
         style: style || undefined,
@@ -791,7 +827,8 @@ export function GenerateClient({
     setImageLoaded(false);
     if (clearPrompt) {
       setPrompt("");
-      setEnhancedPrompt("");
+      setPreviousPrompt(null);
+      clearUndoTimer();
       setImageInputs([]);
       setImageInputPreviews([]);
       setAssetBrands([]);
@@ -832,7 +869,6 @@ export function GenerateClient({
           description: brewDescription.trim() || undefined,
           model: selectedModel,
           prompt: brewIncludePrompt ? prompt : undefined,
-          enhancedPrompt: brewIncludePrompt ? enhancedPrompt : undefined,
           parameters: params,
           previewUrl: generatedAsset?.url,
           imageInput: imageInputs.length > 0 ? imageInputs : undefined,
@@ -864,9 +900,13 @@ export function GenerateClient({
     if (isBrewVideo) setMediaType("video");
     else setMediaType("image");
 
-    // Set prompt
-    if (brew.prompt) setPrompt(brew.prompt);
-    if (brew.enhancedPrompt) setEnhancedPrompt(brew.enhancedPrompt);
+    // Set prompt — fold legacy enhancedPrompt into the single prompt field
+    const restoredPrompt = brew.enhancedPrompt?.trim()
+      ? brew.enhancedPrompt
+      : brew.prompt;
+    if (restoredPrompt) setPrompt(restoredPrompt);
+    setPreviousPrompt(null);
+    clearUndoTimer();
 
     // Set parameters
     if (params.aspectRatio) setAspectRatio(params.aspectRatio as string);
@@ -1097,8 +1137,14 @@ export function GenerateClient({
         {/* Prompt Input */}
         <Card className="relative overflow-visible">
           <CardContent className="pt-6 space-y-4">
-            <div className="relative">
+            <div
+              className={cn(
+                "relative rounded-lg transition-shadow",
+                isEnhancing && "prompt-enhancing"
+              )}
+            >
               <Textarea
+                ref={promptRef}
                 placeholder={
                   isVideo
                     ? "Describe the video you want to generate..."
@@ -1108,8 +1154,34 @@ export function GenerateClient({
                 onChange={(e) =>
                   setPrompt(e.target.value.slice(0, PROMPT_MAX_LENGTH))
                 }
-                className="min-h-[140px] resize-none text-base leading-relaxed !ring-primary/30 focus-visible:!border-primary/60 focus-visible:shadow-[0_0_15px_-3px] focus-visible:shadow-primary/20"
+                onKeyDown={(e) => {
+                  if (
+                    (e.metaKey || e.ctrlKey) &&
+                    e.key.toLowerCase() === "e" &&
+                    !e.shiftKey &&
+                    !e.altKey
+                  ) {
+                    e.preventDefault();
+                    if (prompt.trim() && !isEnhancing) {
+                      handleEnhance("llm", {});
+                    }
+                  }
+                }}
+                aria-busy={isEnhancing}
+                className="min-h-[140px] resize-none text-base leading-relaxed pb-10 !ring-primary/30 focus-visible:!border-primary/60 focus-visible:shadow-[0_0_15px_-3px] focus-visible:shadow-primary/20"
               />
+              <div className="pointer-events-none absolute bottom-2 left-2 z-10">
+                <PromptToolbar
+                  prompt={prompt}
+                  isEnhancing={isEnhancing}
+                  showUndo={previousPrompt !== null}
+                  onEnhance={(mode, template) => handleEnhance(mode, template)}
+                  onUndo={handleUndoEnhance}
+                  onDismissUndo={handleDismissUndo}
+                  modifiers={modifiers}
+                  shortcutLabel={shortcutLabel}
+                />
+              </div>
               <span className="absolute bottom-2.5 right-3 text-[11px] tabular-nums text-muted-foreground/60 select-none">
                 {prompt.length}/{PROMPT_MAX_LENGTH}
               </span>
@@ -1212,24 +1284,6 @@ export function GenerateClient({
                 </div>
               )}
             </div>
-
-            {enhancedPrompt && (
-              <div className="rounded-lg border border-primary/15 bg-primary/[0.04] p-3.5 space-y-1.5">
-                <div className="flex items-center gap-1.5 text-xs font-medium text-primary">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Enhanced Prompt
-                </div>
-                <p className="text-sm leading-relaxed text-foreground/80">
-                  {enhancedPrompt}
-                </p>
-                <button
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  onClick={() => setEnhancedPrompt("")}
-                >
-                  Clear enhancement
-                </button>
-              </div>
-            )}
 
             {/* Active model indicator */}
             {currentModel && (
@@ -1343,117 +1397,6 @@ export function GenerateClient({
               </Button>
             </div>
           </CardContent>
-        </Card>
-
-        {/* Prompt Enhancer */}
-        <Card>
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <button
-                onClick={() => setShowEnhancer(!showEnhancer)}
-                className="flex items-center gap-2 text-left group"
-              >
-                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-secondary">
-                  <Sparkles className="h-3.5 w-3.5 text-muted-foreground group-hover:text-foreground transition-colors" />
-                </div>
-                <CardTitle className="text-sm font-medium group-hover:text-foreground transition-colors">
-                  Prompt Enhancer
-                </CardTitle>
-                {showEnhancer ? (
-                  <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                )}
-              </button>
-              <Switch
-                checked={showEnhancer}
-                onCheckedChange={setShowEnhancer}
-              />
-            </div>
-          </CardHeader>
-          {showEnhancer && (
-            <CardContent className="space-y-4">
-              <Tabs
-                value={enhanceMode}
-                onValueChange={(v) =>
-                  setEnhanceMode((v ?? "template") as "template" | "llm")
-                }
-              >
-                <TabsList className="w-full">
-                  <TabsTrigger value="template" className="flex-1 gap-1.5">
-                    <Zap className="h-3.5 w-3.5" />
-                    Templates
-                  </TabsTrigger>
-                  <TabsTrigger value="llm" className="flex-1 gap-1.5">
-                    <Sparkles className="h-3.5 w-3.5" />
-                    AI Rewrite
-                  </TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="template" className="space-y-3 mt-3">
-                  {Object.entries(modifiers).map(([category, options]) => (
-                    <div key={category}>
-                      <Label className="text-xs capitalize mb-1.5 block text-muted-foreground">
-                        {category}
-                      </Label>
-                      <Select
-                        value={
-                          template[category as keyof PromptTemplate] ?? ""
-                        }
-                        onValueChange={(v) =>
-                          setTemplate((prev) => ({
-                            ...prev,
-                            [category]: v ?? "",
-                          }))
-                        }
-                      >
-                        <SelectTrigger className="w-full bg-secondary/50 border-border/50">
-                          <SelectValue placeholder={`Select ${category}`} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {options.map((opt) => (
-                            <SelectItem
-                              key={opt.label}
-                              value={opt.value || "none"}
-                            >
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  ))}
-                </TabsContent>
-
-                <TabsContent value="llm" className="mt-3">
-                  <div className="rounded-lg border border-dashed border-border/60 bg-secondary/30 p-4">
-                    <p className="text-xs text-muted-foreground">
-                      Uses Mistral AI to rewrite your prompt, optimized for the
-                      selected model.
-                    </p>
-                  </div>
-                </TabsContent>
-              </Tabs>
-
-              <Button
-                onClick={handleEnhance}
-                disabled={isEnhancing || !prompt.trim()}
-                variant="secondary"
-                className="w-full border border-border/50"
-              >
-                {isEnhancing ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="mr-2 h-4 w-4" />
-                )}
-                {isEnhancing
-                  ? "Enhancing..."
-                  : enhanceMode === "template"
-                    ? "Apply Template"
-                    : "Enhance with AI"}
-              </Button>
-            </CardContent>
-          )}
         </Card>
 
         {/* LoRA Browser — shown when model supports LoRAs */}
