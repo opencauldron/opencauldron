@@ -70,7 +70,7 @@ export async function POST(req: NextRequest) {
         userId,
         brandId,
         status: "draft",
-        source: "generation",
+        source: "generated",
         mediaType: "image",
         model: "grok-imagine" as ModelId,
         provider,

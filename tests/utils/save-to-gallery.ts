@@ -93,7 +93,7 @@ export async function generateAndSave(
       userId,
       brandId,
       status: "draft",
-      source: "generation",
+      source: "generated",
       mediaType: "image",
       model: modelId,
       provider: provider.provider,

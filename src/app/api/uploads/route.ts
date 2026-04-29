@@ -183,7 +183,7 @@ async function handleAssetUpload(
       userId,
       brandId,
       status: "draft",
-      source: "upload",
+      source: "uploaded",
       brandKitOverridden: false,
       mediaType: isImage ? "image" : "video",
       model: "upload",

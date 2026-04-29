@@ -438,7 +438,7 @@ export async function POST(req: NextRequest) {
         userId,
         brandId,
         status: "draft",
-        source: "generation",
+        source: "generated",
         brandKitOverridden: kitResult.brandKitOverridden,
         mediaType: "image",
         model,

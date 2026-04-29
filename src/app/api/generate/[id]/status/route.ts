@@ -149,7 +149,7 @@ export async function GET(
           userId: session.user.id,
           brandId,
           status: "draft",
-          source: "generation",
+          source: "generated",
           brandKitOverridden: stashedOverride,
           mediaType: "video",
           model: generation.model,

@@ -170,17 +170,17 @@ async function seedFixture(pool: Pool): Promise<Fixture> {
   // Three assets on the source brand, in different statuses.
   const a1 = await pool.query<{ id: string }>(
     `INSERT INTO assets (user_id, brand_id, model, provider, prompt, r2_key, r2_url, status, source)
-       VALUES ($1, $2, 'm', 'p', 'p1', 'k1', 'u1', 'draft', 'generation') RETURNING id`,
+       VALUES ($1, $2, 'm', 'p', 'p1', 'k1', 'u1', 'draft', 'generated') RETURNING id`,
     [creator.rows[0].id, source.rows[0].id]
   );
   const a2 = await pool.query<{ id: string }>(
     `INSERT INTO assets (user_id, brand_id, model, provider, prompt, r2_key, r2_url, status, source)
-       VALUES ($1, $2, 'm', 'p', 'p2', 'k2', 'u2', 'in_review', 'generation') RETURNING id`,
+       VALUES ($1, $2, 'm', 'p', 'p2', 'k2', 'u2', 'in_review', 'generated') RETURNING id`,
     [creator.rows[0].id, source.rows[0].id]
   );
   const a3 = await pool.query<{ id: string }>(
     `INSERT INTO assets (user_id, brand_id, model, provider, prompt, r2_key, r2_url, status, source)
-       VALUES ($1, $2, 'm', 'p', 'p3', 'k3', 'u3', 'approved', 'generation') RETURNING id`,
+       VALUES ($1, $2, 'm', 'p', 'p3', 'k3', 'u3', 'approved', 'generated') RETURNING id`,
     [creator.rows[0].id, source.rows[0].id]
   );
 

@@ -14,6 +14,14 @@ const envSchema = z.object({
     .default("false")
     .transform((v) => v === "true"),
 
+  // Library/DAM unification — when off, /library and /api/library 404 and the
+  // sidebar still points at /references. Flip to "true" once the unified
+  // Library is ready to ship.
+  LIBRARY_DAM_ENABLED: z
+    .union([z.literal("true"), z.literal("false")])
+    .default("false")
+    .transform((v) => v === "true"),
+
   // Auth
   NEXTAUTH_URL: z.string().url().optional(),
   NEXTAUTH_SECRET: z.string().min(1),
@@ -49,6 +57,13 @@ const envSchema = z.object({
 
   // Prompt Improver
   MISTRAL_API_KEY: z.string().optional(),
+
+  // Library/DAM — embedding pipeline (Replicate clip-features, ViT-L/14, 768-dim)
+  REPLICATE_API_TOKEN: z.string().optional(),
+  EMBEDDING_MODEL: z.string().default("andreasjansson/clip-features"),
+  EMBEDDING_DIM: z.coerce.number().int().positive().default(768),
+  EMBEDDING_BATCH_SIZE: z.coerce.number().int().positive().default(50),
+  EMBEDDING_CRON_INTERVAL_MIN: z.coerce.number().int().positive().default(2),
 });
 
 export type Env = z.infer<typeof envSchema>;

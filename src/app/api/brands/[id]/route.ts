@@ -24,6 +24,10 @@ const updateSchema = z.object({
   bannedTerms: z.array(z.string().min(1).max(64)).max(64).optional(),
   defaultLoraId: z.string().nullable().optional(),
   defaultLoraIds: z.array(z.string()).max(16).optional(),
+  // Renamed from `anchorReferenceIds` in the Library/DAM unification (0016).
+  // The frontend's brand-kit editor switches over in Phase 3; for now both
+  // names are accepted on PATCH so an in-flight UI deploy doesn't lose data.
+  anchorAssetIds: z.array(z.string().uuid()).max(16).optional(),
   anchorReferenceIds: z.array(z.string().uuid()).max(16).optional(),
   palette: z.array(z.string().regex(HEX)).max(16).optional(),
   selfApprovalAllowed: z.boolean().optional(),
@@ -81,10 +85,19 @@ export async function PATCH(
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
 
+  // Compat shim: accept the legacy `anchorReferenceIds` name and fold it into
+  // the new `anchorAssetIds` column. Explicit `anchorAssetIds` wins if both
+  // are present. Removed once the Phase 3 UI lands and the legacy name dies.
+  const { anchorReferenceIds: legacyAnchors, ...rest } = parsed.data;
+  const updateValues: typeof rest & { anchorAssetIds?: string[] } = { ...rest };
+  if (legacyAnchors !== undefined && updateValues.anchorAssetIds === undefined) {
+    updateValues.anchorAssetIds = legacyAnchors;
+  }
+
   try {
     const [updated] = await db
       .update(brands)
-      .set(parsed.data)
+      .set(updateValues)
       .where(eq(brands.id, id))
       .returning();
     if (!updated) return NextResponse.json({ error: "Not found" }, { status: 404 });

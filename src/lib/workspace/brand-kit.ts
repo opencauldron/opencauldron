@@ -47,7 +47,7 @@ export interface KitRow {
   bannedTerms: string[];
   defaultLoraId: string | null;
   defaultLoraIds: string[];
-  anchorReferenceIds: string[];
+  anchorAssetIds: string[];
   workspaceDefaultLoraId: string | null;
 }
 
@@ -60,7 +60,7 @@ async function loadKit(brandId: string, workspaceId: string): Promise<KitRow | n
       bannedTerms: brands.bannedTerms,
       defaultLoraId: brands.defaultLoraId,
       defaultLoraIds: brands.defaultLoraIds,
-      anchorReferenceIds: brands.anchorReferenceIds,
+      anchorAssetIds: brands.anchorAssetIds,
       workspaceDefaultLoraId: workspaces.defaultLoraId,
     })
     .from(brands)
@@ -80,7 +80,7 @@ async function loadKit(brandId: string, workspaceId: string): Promise<KitRow | n
     bannedTerms: r.bannedTerms ?? [],
     defaultLoraId: r.defaultLoraId,
     defaultLoraIds: r.defaultLoraIds ?? [],
-    anchorReferenceIds: r.anchorReferenceIds ?? [],
+    anchorAssetIds: r.anchorAssetIds ?? [],
     workspaceDefaultLoraId: r.workspaceDefaultLoraId,
   };
 }
@@ -150,7 +150,7 @@ export function composeKit(
 
   // 4. Anchor reference inclusion — silent if user provided none.
   const imageInputFinal =
-    userRefs.length > 0 ? userRefs : kit.anchorReferenceIds;
+    userRefs.length > 0 ? userRefs : kit.anchorAssetIds;
 
   return {
     promptFinal,
