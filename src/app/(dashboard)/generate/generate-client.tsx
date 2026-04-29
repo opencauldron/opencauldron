@@ -393,14 +393,18 @@ export function GenerateClient({
   const [refPickerLoading, setRefPickerLoading] = useState(false);
   const [refPickerCursor, setRefPickerCursor] = useState<string | null>(null);
 
+  // T022 — picker reads from /api/library directly. The library item shape is
+  // a superset of the legacy references shape (per T011's contract), so the
+  // picker's narrow projection ({ id, url, thumbnailUrl, fileName }) keeps
+  // working unchanged. Cursor is opaque on the client.
   function handleRefPickerOpen() {
     setShowRefPicker(true);
     if (refPickerItems.length === 0) {
       setRefPickerLoading(true);
-      fetch("/api/references?limit=20")
+      fetch("/api/library?limit=20")
         .then((r) => (r.ok ? r.json() : Promise.reject()))
-        .then((data: { references: typeof refPickerItems; nextCursor: string | null }) => {
-          setRefPickerItems(data.references);
+        .then((data: { items: typeof refPickerItems; nextCursor: string | null }) => {
+          setRefPickerItems(data.items);
           setRefPickerCursor(data.nextCursor);
         })
         .catch(() => {})
@@ -411,10 +415,10 @@ export function GenerateClient({
   function handleRefPickerLoadMore() {
     if (!refPickerCursor || refPickerLoading) return;
     setRefPickerLoading(true);
-    fetch(`/api/references?limit=20&cursor=${refPickerCursor}`)
+    fetch(`/api/library?limit=20&cursor=${encodeURIComponent(refPickerCursor)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((data: { references: typeof refPickerItems; nextCursor: string | null }) => {
-        setRefPickerItems((prev) => [...prev, ...data.references]);
+      .then((data: { items: typeof refPickerItems; nextCursor: string | null }) => {
+        setRefPickerItems((prev) => [...prev, ...data.items]);
         setRefPickerCursor(data.nextCursor);
       })
       .catch(() => {})
