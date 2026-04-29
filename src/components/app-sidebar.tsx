@@ -125,7 +125,7 @@ const topNavItems: NavItem[] = [
 // LIBRARY section — workspace-wide content surfaces.
 const libraryNavItems: NavItem[] = [
   { title: "Brews", href: "/brews", icon: FlaskConical },
-  { title: "References", href: "/references", icon: ImagePlus },
+  { title: "Library", href: "/library", icon: ImagePlus },
   { title: "LoRAs", href: "/loras", icon: Layers },
 ];
 
