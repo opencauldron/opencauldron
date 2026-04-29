@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import {
@@ -12,6 +12,11 @@ import {
 import { env } from "@/lib/env";
 import { getAssetUrl } from "@/lib/storage";
 import { LibraryClient, type LibraryAsset } from "./library-client";
+import type {
+  BrandOption,
+  CampaignOption,
+  TagOption,
+} from "./filter-bar";
 
 const INITIAL_LIMIT = 30;
 
@@ -29,11 +34,13 @@ export default async function LibraryPage() {
 
   const userId = session.user.id;
 
-  // First page: read directly from drizzle to keep TTFB tight (mirrors the
-  // server-side path the backend agent's GET /api/library will take). Cursor
-  // pagination is `createdAt` strictly less-than (matches the references API
-  // contract the picker already consumes).
-  const rows = await db
+  // First page: read directly from drizzle to keep TTFB tight. Cursor
+  // pagination is `(createdAt, id)` lexicographic so sub-millisecond inserts
+  // can't cause duplicates or skips.
+  //
+  // We additionally compute the total count via a window function so the
+  // FilterBar's summary can show "N results" without a second round-trip.
+  const initialRows = await db
     .select({
       id: assets.id,
       userId: assets.userId,
@@ -50,18 +57,19 @@ export default async function LibraryPage() {
       usageCount: assets.usageCount,
       embeddedAt: assets.embeddedAt,
       createdAt: assets.createdAt,
+      totalCount: sql<number>`COUNT(*) OVER()`.as("total_count"),
     })
     .from(assets)
     .where(and(eq(assets.userId, userId)))
     .orderBy(desc(assets.createdAt), desc(assets.id))
     .limit(INITIAL_LIMIT + 1);
 
-  const hasMore = rows.length > INITIAL_LIMIT;
-  const trimmed = hasMore ? rows.slice(0, INITIAL_LIMIT) : rows;
+  const hasMore = initialRows.length > INITIAL_LIMIT;
+  const trimmed = hasMore ? initialRows.slice(0, INITIAL_LIMIT) : initialRows;
   const ids = trimmed.map((r) => r.id);
+  const initialTotal = trimmed[0]?.totalCount ?? 0;
 
-  // Tags + campaigns in two follow-up batched queries — cheap because we
-  // already have the asset id set in memory.
+  // Tags + campaigns for the loaded items, in two batched queries.
   const [tagRows, campaignRows] = await Promise.all([
     ids.length
       ? db
@@ -97,7 +105,7 @@ export default async function LibraryPage() {
     campaignsById.set(row.assetId, list);
   }
 
-  // Resolve thumbnail + full URLs once — Cloudflare R2 keys → signed URLs.
+  // Resolve thumbnail + full URLs once.
   const initialItems: LibraryAsset[] = await Promise.all(
     trimmed.map(async (r) => {
       const url = await getAssetUrl(r.r2Key);
@@ -125,20 +133,55 @@ export default async function LibraryPage() {
     })
   );
 
-  // Brand list for the pin-to-brand toggle in the detail panel. Cheap because
-  // we own the workspace lookup already; reuse the same scoping the layout
-  // uses (own-personal-or-real-brand). Fetched here so the panel doesn't have
-  // to round-trip on first open.
-  const brandRows = await db
-    .select({
-      id: brands.id,
-      name: brands.name,
-      color: brands.color,
-      isPersonal: brands.isPersonal,
-      anchorAssetIds: brands.anchorAssetIds,
-    })
-    .from(brands)
-    .where(eq(brands.ownerId, userId));
+  // -----------------------------------------------------------------------
+  // FilterBar option lists. All scoped to the user's owned brands so the
+  // facets only show choices that actually appear in their library.
+  //
+  // Run these in parallel — each is a single index hit, total ~four cheap
+  // round-trips that overlap with the asset hydration above.
+  // -----------------------------------------------------------------------
+  const [
+    brandRows,
+    facetCampaignRows,
+    facetTagRows,
+    distinctStatusRows,
+  ] = await Promise.all([
+    db
+      .select({
+        id: brands.id,
+        name: brands.name,
+        color: brands.color,
+        isPersonal: brands.isPersonal,
+        anchorAssetIds: brands.anchorAssetIds,
+      })
+      .from(brands)
+      .where(eq(brands.ownerId, userId)),
+    // Campaigns whose brand is owned by this user.
+    db
+      .select({
+        id: campaigns.id,
+        name: campaigns.name,
+        brandId: campaigns.brandId,
+      })
+      .from(campaigns)
+      .innerJoin(brands, eq(brands.id, campaigns.brandId))
+      .where(eq(brands.ownerId, userId))
+      .orderBy(campaigns.name),
+    // Distinct tag names the user has on any of their assets.
+    db
+      .selectDistinct({ tag: assetTags.tag })
+      .from(assetTags)
+      .innerJoin(assets, eq(assets.id, assetTags.assetId))
+      .where(eq(assets.userId, userId))
+      .orderBy(assetTags.tag),
+    // Distinct status values across the user's assets — used to gate the
+    // Status section in the More popover. We hide it when only one value
+    // exists so solo creators don't see a useless control.
+    db
+      .selectDistinct({ status: assets.status })
+      .from(assets)
+      .where(eq(assets.userId, userId)),
+  ]);
 
   const initialBrands = brandRows.map((b) => ({
     id: b.id,
@@ -148,8 +191,25 @@ export default async function LibraryPage() {
     anchorAssetIds: (b.anchorAssetIds ?? []) as string[],
   }));
 
+  const facetBrands: BrandOption[] = brandRows
+    .map((b) => ({ id: b.id, name: b.name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const facetCampaigns: CampaignOption[] = facetCampaignRows.map((c) => ({
+    id: c.id,
+    name: c.name,
+    brandId: c.brandId,
+  }));
+
+  const facetTags: TagOption[] = facetTagRows.map((r) => ({
+    id: r.tag,
+    label: r.tag,
+  }));
+
+  const hasMixedStatuses = distinctStatusRows.length > 1;
+
   const initialNextCursor = hasMore
-    ? trimmed[trimmed.length - 1].createdAt.toISOString()
+    ? `${trimmed[trimmed.length - 1].createdAt.toISOString()}__${trimmed[trimmed.length - 1].id}`
     : null;
 
   return (
@@ -164,7 +224,12 @@ export default async function LibraryPage() {
       <LibraryClient
         initialItems={initialItems}
         initialNextCursor={initialNextCursor}
+        initialTotal={initialTotal}
         initialBrands={initialBrands}
+        facetBrands={facetBrands}
+        facetCampaigns={facetCampaigns}
+        facetTags={facetTags}
+        hasMixedStatuses={hasMixedStatuses}
       />
     </div>
   );
