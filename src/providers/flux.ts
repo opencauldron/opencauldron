@@ -115,7 +115,9 @@ function createFluxGenerate(modelId: ModelId) {
 
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(`fal.ai Flux failed (${response.status}): ${text}`);
+        throw new Error(
+          `fal.ai Flux failed (${response.status}): ${summarizeFalError(text)}`
+        );
       }
 
       const data = (await response.json()) as {
@@ -153,6 +155,52 @@ function createFluxGenerate(modelId: ModelId) {
       };
     }
   };
+}
+
+/**
+ * fal.ai 4xx responses commonly echo back the full request `input` (signed
+ * URLs, the user's prompt, the entire request body) in their JSON error
+ * payload. Surfacing that verbatim in a toast leaks signed asset URLs and
+ * hides the actual cause behind a wall of text. Pull out just the human-
+ * meaningful message; if we can't parse it, truncate so the toast stays
+ * readable.
+ */
+function summarizeFalError(raw: string): string {
+  const trimmed = raw.trim();
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    const msg = extractMessage(parsed);
+    if (msg) return msg.length > 240 ? msg.slice(0, 239) + "…" : msg;
+  } catch {
+    // Not JSON — fall through to plain-text truncation.
+  }
+  return trimmed.length > 240 ? trimmed.slice(0, 239) + "…" : trimmed;
+}
+
+function extractMessage(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const obj = value as Record<string, unknown>;
+  // Common shapes: { detail: "..." } | { detail: [{ msg, loc }] } |
+  // { message: "..." } | { error: "..." }
+  if (typeof obj.detail === "string") return obj.detail;
+  if (Array.isArray(obj.detail) && obj.detail.length > 0) {
+    const parts = obj.detail
+      .map((d) => {
+        if (!d || typeof d !== "object") return null;
+        const item = d as Record<string, unknown>;
+        const msg = typeof item.msg === "string" ? item.msg : null;
+        const loc = Array.isArray(item.loc)
+          ? item.loc.filter((l) => typeof l === "string" || typeof l === "number").join(".")
+          : null;
+        if (msg && loc) return `${loc}: ${msg}`;
+        return msg;
+      })
+      .filter((s): s is string => Boolean(s));
+    if (parts.length > 0) return parts.join("; ");
+  }
+  if (typeof obj.message === "string") return obj.message;
+  if (typeof obj.error === "string") return obj.error;
+  return null;
 }
 
 const baseCapabilities = {
