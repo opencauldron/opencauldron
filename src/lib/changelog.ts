@@ -7,6 +7,16 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-04-29",
+    title: "OpenAI image editing",
+    bullets: [
+      "OpenAI gpt-image models can now edit existing images — drop a reference into Generate and they'll follow your edit prompt directly",
+      "Up to four reference images at once for compositing — describe how each should be used in your prompt",
+      "gpt-image-1 and gpt-image-1.5 use high input fidelity automatically, tuned to preserve faces and fine detail across edits",
+      "Defaults updated to follow OpenAI's prompting guide — medium quality and opaque backgrounds for more consistent results",
+    ],
+  },
+  {
+    date: "2026-04-29",
     title: "OpenAI gpt-image-2",
     bullets: [
       "OpenAI's newest image model is now available — sharper instruction-following and higher-fidelity image inputs",

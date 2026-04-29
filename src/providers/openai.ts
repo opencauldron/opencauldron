@@ -2,6 +2,44 @@ import type { GenerationProvider, GenerationParams, GenerationResult, ModelId } 
 import { summarizeProviderError } from "@/lib/provider-errors";
 
 const OPENAI_API_URL = "https://api.openai.com/v1/images/generations";
+const OPENAI_EDIT_URL = "https://api.openai.com/v1/images/edits";
+
+// Cap how many reference images we pass to /v1/images/edits. OpenAI accepts
+// multiple images for compositing; we mirror what other providers expose.
+const MAX_EDIT_INPUTS = 4;
+
+// `input_fidelity: "high"` is supported on gpt-image-1 and gpt-image-1.5 to
+// preserve identity and fine details across edits. gpt-image-2 rejects the
+// param ("output is already high fidelity by default") and gpt-image-1-mini
+// has not been documented to support it.
+const SUPPORTS_INPUT_FIDELITY: Record<string, boolean> = {
+  "gpt-image-2": false,
+  "gpt-image-1.5": true,
+  "gpt-image-1": true,
+  "gpt-image-1-mini": false,
+};
+
+async function fetchImageAsBlob(
+  url: string,
+): Promise<{ blob: Blob; filename: string }> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to download reference image: ${response.status}`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  const contentType = response.headers.get("content-type") ?? "image/png";
+  // OpenAI infers extension from the filename; default to .png since gpt-image
+  // edits accept png/webp/jpg and our R2 assets are always one of those.
+  const ext = contentType.includes("jpeg")
+    ? "jpg"
+    : contentType.includes("webp")
+      ? "webp"
+      : "png";
+  return {
+    blob: new Blob([arrayBuffer], { type: contentType }),
+    filename: `reference.${ext}`,
+  };
+}
 
 // gpt-image-* supports three sizes — square + two 2:3 portrait/landscape ratios.
 const ASPECT_RATIO_TO_SIZE: Record<string, string> = {
@@ -69,11 +107,12 @@ interface OpenAIApiResponse {
   error?: { message?: string; type?: string; code?: string };
 }
 
-function mapQuality(q: GenerationParams["quality"]): "low" | "medium" | "high" | "auto" {
+function mapQuality(q: GenerationParams["quality"]): "low" | "medium" | "high" {
   // App-level `quality` is `"standard" | "high"`. Map to gpt-image's vocabulary.
+  // OpenAI's image-gen cookbook recommends `medium` as the default for most
+  // workflows; we avoid `auto` since it's non-deterministic across releases.
   if (q === "high") return "high";
-  if (q === "standard") return "medium";
-  return "auto";
+  return "medium";
 }
 
 function createOpenAIGenerate(variantId: ModelId) {
@@ -104,27 +143,73 @@ function createOpenAIGenerate(variantId: ModelId) {
         params.transparentBackground === true) &&
       SUPPORTS_TRANSPARENT[variantId] !== false;
 
-    const body: Record<string, unknown> = {
-      model: apiModel,
-      prompt: params.enhancedPrompt ?? params.prompt,
-      n: Math.min(Math.max(params.numImages ?? 1, 1), 10),
-      size,
-      quality,
-      output_format: "png",
-      background: wantsTransparent ? "transparent" : "auto",
-      // gpt-image always returns b64_json — do NOT pass `response_format`,
-      // the API rejects it on this model family.
-    };
+    const hasImage = !!params.imageInput?.length;
+    const prompt = params.enhancedPrompt ?? params.prompt;
 
     try {
-      const response = await fetch(OPENAI_API_URL, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
+      let response: Response;
+
+      if (hasImage) {
+        // /v1/images/edits requires multipart/form-data with the actual bytes.
+        // Download each reference from its R2 URL and forward as a file part.
+        const form = new FormData();
+        form.append("model", apiModel);
+        form.append("prompt", prompt);
+        form.append("n", "1");
+        form.append("size", size);
+        form.append("quality", quality);
+        form.append("output_format", "png");
+        form.append(
+          "background",
+          wantsTransparent ? "transparent" : "opaque",
+        );
+        if (SUPPORTS_INPUT_FIDELITY[variantId]) {
+          // Cookbook recommends `high` for identity/detail preservation in edits.
+          form.append("input_fidelity", "high");
+        }
+
+        const refs = (params.imageInput ?? []).slice(0, MAX_EDIT_INPUTS);
+        for (const ref of refs) {
+          const { blob, filename } = await fetchImageAsBlob(ref);
+          // OpenAI accepts repeated `image[]` entries for multi-image
+          // compositing. Single-image edits also accept this shape.
+          form.append("image[]", blob, filename);
+        }
+
+        response = await fetch(OPENAI_EDIT_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: form,
+        });
+      } else {
+        const body: Record<string, unknown> = {
+          model: apiModel,
+          prompt,
+          // GenerationResult only carries one imageBuffer, so any n>1 would
+          // be billed and discarded. Force n=1 until multi-image return is
+          // plumbed through the system.
+          n: 1,
+          size,
+          quality,
+          output_format: "png",
+          // Cookbook uses `opaque` explicitly. `auto` lets the model decide
+          // and occasionally produces transparent zones we didn't request.
+          background: wantsTransparent ? "transparent" : "opaque",
+          // gpt-image always returns b64_json — do NOT pass `response_format`,
+          // the API rejects it on this model family.
+        };
+
+        response = await fetch(OPENAI_API_URL, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        });
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -184,6 +269,7 @@ const capabilities = {
   supportsNegativePrompt: false,
   supportsBatchGeneration: true,
   maxBatchSize: 10,
+  supportsImageInput: true,
 };
 
 export const openaiGptImage2Provider: GenerationProvider = {

@@ -4,7 +4,7 @@ import { getUserId } from "../../utils/get-user";
 import { TEST_PROMPTS } from "../../utils/prompts";
 import type { ModelId } from "@/types";
 
-const MODELS: ModelId[] = ["gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"];
+const MODELS: ModelId[] = ["gpt-image-2", "gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"];
 
 describe("OpenAI", () => {
   for (const modelId of MODELS) {

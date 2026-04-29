@@ -40,6 +40,7 @@ const generateSchema = z.object({
     "recraft-20b",
     "recraft-v4",
     "recraft-v4-pro",
+    "gpt-image-2",
     "gpt-image-1.5",
     "gpt-image-1",
     "gpt-image-1-mini",

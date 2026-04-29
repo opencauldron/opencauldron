@@ -125,7 +125,7 @@ const MODEL_LOGOS: Record<string, string> = {
   "flux-1.1-pro": "/logos/bfl.png",
   "ideogram-3": "/logos/ideogram.png",
   "recraft-v3": "/logos/recraft.png",
-  "gpt-image-1.5": "/logos/openai.png",
+  "gpt-image-2": "/logos/openai.png",
 };
 
 /** Fallback emoji for models without a logo (e.g. video providers) */

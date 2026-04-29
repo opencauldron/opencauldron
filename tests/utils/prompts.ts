@@ -121,9 +121,15 @@ export const TEST_PROMPTS: Record<string, TestPromptConfig> = {
   },
 
   // ── OpenAI ────────────────────────────────────────────────
-  "gpt-image-1.5": {
+  "gpt-image-2": {
     prompt:
       "A radiant cauldron carved from polished onyx with veins of gold, sitting on a circle of glowing runes. Violet smoke rises in elegant tendrils, twisting into the shape of letters spelling OPEN CAULDRON. Sharp text rendering, photorealistic materials, soft volumetric lighting, dark background.",
+    aspectRatio: "1:1",
+    timeoutMs: 60_000,
+  },
+  "gpt-image-1.5": {
+    prompt:
+      "An ornate alchemist's workbench at dusk, brass instruments gleaming, an open spellbook with hand-lettered runes, a single floating ember above a sapphire-blue potion. Painterly fantasy realism, sharp focus on the book.",
     aspectRatio: "1:1",
     timeoutMs: 60_000,
   },

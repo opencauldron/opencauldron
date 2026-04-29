@@ -113,6 +113,14 @@ const MODEL_TIPS: Partial<Record<ModelId, string>> = {
     "Hailuo produces video with audio. Describe visual and audio elements together.",
   "ray-2":
     "Ray 2 supports camera controls. Specify camera angles and movements.",
+  "gpt-image-2":
+    "OpenAI gpt-image-2 follows instructions literally. Structure as scene → subject → key details → constraints. Put any literal text in quotes. Include the word 'photorealistic' for photo output. State exclusions explicitly (e.g. 'no watermark', 'no extra text').",
+  "gpt-image-1.5":
+    "OpenAI gpt-image-1.5 follows instructions literally. Structure as scene → subject → key details → constraints. Put any literal text in quotes. Include the word 'photorealistic' for photo output. State exclusions explicitly (e.g. 'no watermark', 'no extra text').",
+  "gpt-image-1":
+    "OpenAI gpt-image-1 follows instructions literally. Structure as scene → subject → key details → constraints. Put any literal text in quotes. Include the word 'photorealistic' for photo output. State exclusions explicitly (e.g. 'no watermark', 'no extra text').",
+  "gpt-image-1-mini":
+    "OpenAI gpt-image-1-mini follows instructions literally. Structure as scene → subject → key details → constraints. Put any literal text in quotes. Include the word 'photorealistic' for photo output. State exclusions explicitly (e.g. 'no watermark', 'no extra text').",
 };
 
 /**
