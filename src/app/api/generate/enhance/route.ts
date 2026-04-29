@@ -10,18 +10,7 @@ import type { ModelId, PromptTemplate } from "@/types";
 const enhanceSchema = z.object({
   prompt: z.string().min(1).max(4000),
   mode: z.enum(["template", "llm"]),
-  model: z.enum([
-    "imagen-4",
-    "imagen-flash",
-    "imagen-flash-lite",
-    "grok-imagine",
-    "grok-imagine-pro",
-    "flux-1.1-pro",
-    "flux-dev",
-    "ideogram-3",
-    "recraft-v3",
-    "recraft-20b",
-  ]),
+  model: z.string().min(1).max(64),
   template: z
     .object({
       style: z.string().optional(),

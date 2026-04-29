@@ -21,7 +21,6 @@ import { bootstrapHostedSignup } from "@/lib/workspace/bootstrap";
 
 const generateSchema = z.object({
   prompt: z.string().min(1).max(4000),
-  enhancedPrompt: z.string().optional(),
   model: z.enum([
     // Image models
     "imagen-4",
@@ -155,7 +154,7 @@ export async function POST(req: NextRequest) {
   }
 
   const {
-    prompt, enhancedPrompt, model,
+    prompt, model,
     aspectRatio, style, negativePrompt, quality,
     seed, outputFormat, resolution, guidance, steps, cfgScale,
     renderingSpeed, personGeneration, watermark, promptEnhance, promptOptimizer, loop,
@@ -270,13 +269,14 @@ export async function POST(req: NextRequest) {
     throw err;
   }
   // The original user prompt stays as `assets.prompt` for transparency.
-  // The kit-injected prompt becomes `enhancedPrompt` (overrides any prior
-  // Mistral-enhanced value when the kit added prefix/suffix).
+  // The kit-injected prompt becomes `enhancedPrompt` when the kit added
+  // prefix/suffix; on override we record null so the asset shows just the
+  // user's prompt verbatim.
   const promptForProvider = kitResult.brandKitOverridden
-    ? (enhancedPrompt || prompt)
+    ? prompt
     : kitResult.promptFinal;
   const enhancedPromptForRecord = kitResult.brandKitOverridden
-    ? enhancedPrompt
+    ? null
     : kitResult.promptFinal;
   const imageInputFinal = kitResult.imageInputFinal.length > 0
     ? kitResult.imageInputFinal

@@ -7,6 +7,17 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-04-29",
+    title: "Prompt enhancer, redesigned",
+    bullets: [
+      "Enhance now lives inside the prompt box — one tap rewrites your prompt in place, no extra panel to expand",
+      "Hit Cmd/Ctrl+E to rewrite without leaving the keyboard",
+      "Don't love the rewrite? An Undo pill appears for 8 seconds to put your original prompt back",
+      "Click the ▾ next to Enhance for templates (style, lighting, composition, mood, quality) — selections clear after each run so they don't pile up",
+      "On phones the options open as a bottom sheet for easier tapping",
+    ],
+  },
+  {
+    date: "2026-04-29",
     title: "Prompt enhancement is live again",
     bullets: [
       "Click ✨ Enhance on the prompt box to rewrite your idea into a more detailed prompt",
