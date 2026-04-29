@@ -4,6 +4,7 @@ import type {
   GenerationResult,
   ModelId,
 } from "@/types";
+import { summarizeProviderError } from "@/lib/provider-errors";
 
 const ASPECT_RATIO_DIMENSIONS: Record<string, { width: number; height: number }> = {
   "1:1": { width: 1024, height: 1024 },
@@ -62,17 +63,9 @@ function createGrokGenerate(variantId: ModelId) {
 
       if (!response.ok) {
         const errorBody = await response.text();
-        let errorMessage: string;
-        try {
-          const parsed = JSON.parse(errorBody);
-          errorMessage =
-            parsed.error?.message ?? parsed.error ?? errorBody;
-        } catch {
-          errorMessage = errorBody;
-        }
         return {
           status: "failed",
-          error: `xAI API error (${response.status}): ${errorMessage}`,
+          error: `xAI API error (${response.status}): ${summarizeProviderError(errorBody)}`,
           durationMs: Date.now() - startTime,
         };
       }
@@ -160,7 +153,7 @@ export async function editGrokImage(
 
     if (!response.ok) {
       const errorBody = await response.text();
-      return { status: "failed", error: `xAI edit error (${response.status}): ${errorBody}`, durationMs: Date.now() - startTime };
+      return { status: "failed", error: `xAI edit error (${response.status}): ${summarizeProviderError(errorBody)}`, durationMs: Date.now() - startTime };
     }
 
     const data = (await response.json()) as { data: { b64_json: string }[] };

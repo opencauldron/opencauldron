@@ -1,4 +1,5 @@
 import type { GenerationProvider, GenerationParams, GenerationResult } from "@/types";
+import { summarizeProviderError } from "@/lib/provider-errors";
 
 const FAL_API_BASE = "https://queue.fal.run";
 
@@ -46,7 +47,7 @@ async function submitJob(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Kling/fal.ai submission failed (${response.status}): ${text}`);
+    throw new Error(`Kling/fal.ai submission failed (${response.status}): ${summarizeProviderError(text)}`);
   }
 
   const data = (await response.json()) as { request_id: string };
@@ -77,7 +78,7 @@ async function pollJob(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Kling/fal.ai poll failed (${response.status}): ${text}`);
+    throw new Error(`Kling/fal.ai poll failed (${response.status}): ${summarizeProviderError(text)}`);
   }
 
   return response.json();
@@ -102,7 +103,7 @@ async function getResult(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Kling/fal.ai result fetch failed (${response.status}): ${text}`);
+    throw new Error(`Kling/fal.ai result fetch failed (${response.status}): ${summarizeProviderError(text)}`);
   }
 
   return response.json();
@@ -149,7 +150,7 @@ export const klingProProvider: GenerationProvider = {
     });
     if (!response.ok) {
       const text = await response.text();
-      return { status: "failed" as const, error: `Kling Pro failed (${response.status}): ${text}` };
+      return { status: "failed" as const, error: `Kling Pro failed (${response.status}): ${summarizeProviderError(text)}` };
     }
     const data = (await response.json()) as { request_id: string };
     return { status: "processing" as const, jobId: data.request_id };

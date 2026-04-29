@@ -7,6 +7,15 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-04-29",
+    title: "OpenAI gpt-image-2",
+    bullets: [
+      "OpenAI's newest image model is now available — sharper instruction-following and higher-fidelity image inputs",
+      "Picked automatically when you select OpenAI in Generate; older versions (1.5, 1.0, Mini) live under the variant selector",
+      "Heads up: gpt-image-2 doesn't support transparent backgrounds yet — use 1.5 if you need an alpha channel",
+    ],
+  },
+  {
+    date: "2026-04-29",
     title: "In-app notifications",
     bullets: [
       "New bell in the sidebar shows submits, approvals, and rejections as they happen",

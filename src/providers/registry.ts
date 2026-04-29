@@ -4,7 +4,7 @@ import { grokProvider, grokProProvider } from "./grok";
 import { fluxProvider, fluxDevProvider, fluxKontextProvider, fluxKleinProvider } from "./flux";
 import { ideogramProvider } from "./ideogram";
 import { recraftProvider, recraft20bProvider, recraftV4Provider, recraftV4ProProvider } from "./recraft";
-import { openaiGptImageProvider, openaiGptImage1Provider, openaiGptImageMiniProvider } from "./openai";
+import { openaiGptImage2Provider, openaiGptImageProvider, openaiGptImage1Provider, openaiGptImageMiniProvider } from "./openai";
 import { veoProvider, veo31Provider, veoFastProvider } from "./veo";
 import { runwayProvider, runwayGen45Provider } from "./runway";
 import { klingProvider, klingProProvider } from "./kling";
@@ -31,6 +31,7 @@ const allProviders: GenerationProvider[] = [
   recraftV4Provider,
   recraftV4ProProvider,
   ideogramProvider,
+  openaiGptImage2Provider,
   openaiGptImageProvider,
   openaiGptImage1Provider,
   openaiGptImageMiniProvider,
@@ -62,6 +63,7 @@ const VARIANT_ONLY_IDS: Set<ModelId> = new Set([
   "recraft-20b",
   "recraft-v4",
   "recraft-v4-pro",
+  "gpt-image-1.5",
   "gpt-image-1",
   "gpt-image-1-mini",
   "veo-3.1",
@@ -187,13 +189,20 @@ const VARIANT_GROUPS: Partial<Record<ModelId, ModelVariant[]>> = {
       description: "Premium. 4MP print-ready output.",
     },
   ],
-  "gpt-image-1.5": [
+  "gpt-image-2": [
+    {
+      id: "gpt-image-2",
+      label: "2.0",
+      costPerImage: 0.042,
+      avgGenerationTime: 12,
+      description: "OpenAI's latest. Sharper instruction-following and high-fidelity image inputs.",
+    },
     {
       id: "gpt-image-1.5",
       label: "1.5",
       costPerImage: 0.042,
       avgGenerationTime: 12,
-      description: "OpenAI's latest. Strong instruction-following, native transparent backgrounds.",
+      description: "Previous flagship. Native transparent backgrounds.",
     },
     {
       id: "gpt-image-1",
@@ -410,7 +419,8 @@ function getModelDescription(id: ModelId): string {
     "recraft-20b": "Lighter Recraft model. Nearly half the cost, still solid quality.",
     "recraft-v4": "Latest model. 10K char prompts, improved quality.",
     "recraft-v4-pro": "Premium. 4MP print-ready output.",
-    "gpt-image-1.5": "OpenAI's latest. Strong instruction-following, native transparent backgrounds.",
+    "gpt-image-2": "OpenAI's latest. Sharper instruction-following and high-fidelity image inputs.",
+    "gpt-image-1.5": "Previous flagship. Native transparent backgrounds.",
     "gpt-image-1": "OpenAI's original GA model. Stable choice for production.",
     "gpt-image-1-mini": "Cost-optimized OpenAI image model. ~½ the price for similar tasks.",
     "veo-3": "Google's video model with native audio. Up to 8s clips.",
@@ -447,6 +457,7 @@ function getAvgGenTime(id: ModelId): number {
     "recraft-20b": 5,
     "recraft-v4": 8,
     "recraft-v4-pro": 10,
+    "gpt-image-2": 12,
     "gpt-image-1.5": 12,
     "gpt-image-1": 12,
     "gpt-image-1-mini": 8,

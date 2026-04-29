@@ -5,6 +5,7 @@ import type {
   ModelCapabilities,
   ModelId,
 } from "@/types";
+import { summarizeProviderError } from "@/lib/provider-errors";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -119,7 +120,7 @@ async function callPredictAPI(
 
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`Imagen API request failed (${response.status}): ${errorBody}`);
+    throw new Error(`Imagen API request failed (${response.status}): ${summarizeProviderError(errorBody)}`);
   }
 
   const data = (await response.json()) as {
@@ -170,7 +171,7 @@ async function callGenerateContentAPI(
 
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`Gemini image generation failed (${response.status}): ${errorBody}`);
+    throw new Error(`Gemini image generation failed (${response.status}): ${summarizeProviderError(errorBody)}`);
   }
 
   const data = (await response.json()) as {

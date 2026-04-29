@@ -1,4 +1,5 @@
 import type { GenerationProvider, GenerationParams, GenerationResult } from "@/types";
+import { summarizeProviderError } from "@/lib/provider-errors";
 
 const LUMA_API_BASE = "https://api.lumalabs.ai/dream-machine/v1";
 
@@ -66,7 +67,7 @@ async function submitGeneration(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Luma API submission failed (${response.status}): ${text}`);
+    throw new Error(`Luma API submission failed (${response.status}): ${summarizeProviderError(text)}`);
   }
 
   const data = (await response.json()) as { id: string };
@@ -96,7 +97,7 @@ async function pollGeneration(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Luma poll failed (${response.status}): ${text}`);
+    throw new Error(`Luma poll failed (${response.status}): ${summarizeProviderError(text)}`);
   }
 
   return response.json();
@@ -147,7 +148,7 @@ export const lumaFlashProvider: GenerationProvider = {
     });
     if (!response.ok) {
       const text = await response.text();
-      return { status: "failed" as const, error: `Luma Flash failed (${response.status}): ${text}` };
+      return { status: "failed" as const, error: `Luma Flash failed (${response.status}): ${summarizeProviderError(text)}` };
     }
     const data = (await response.json()) as { id: string };
     return { status: "processing" as const, jobId: data.id };

@@ -1,4 +1,5 @@
 import type { GenerationProvider, GenerationParams, GenerationResult, ModelId, ModelCapabilities } from "@/types";
+import { summarizeProviderError } from "@/lib/provider-errors";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -56,7 +57,7 @@ async function submitGeneration(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Veo API submission failed (${response.status}): ${text}`);
+    throw new Error(`Veo API submission failed (${response.status}): ${summarizeProviderError(text)}`);
   }
 
   const data = (await response.json()) as { name: string };
@@ -82,7 +83,7 @@ async function pollOperation(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Veo poll failed (${response.status}): ${text}`);
+    throw new Error(`Veo poll failed (${response.status}): ${summarizeProviderError(text)}`);
   }
 
   return response.json();

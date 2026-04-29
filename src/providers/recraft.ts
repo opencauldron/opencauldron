@@ -1,4 +1,5 @@
 import type { GenerationProvider, GenerationParams, GenerationResult, ModelId } from "@/types";
+import { summarizeProviderError } from "@/lib/provider-errors";
 
 const RECRAFT_API_URL = "https://external.api.recraft.ai/v1/images/generations";
 
@@ -149,16 +150,9 @@ function createRecraftGenerate(variantId: ModelId) {
 
       if (!response.ok) {
         const errorText = await response.text();
-        let errorMessage: string;
-        try {
-          const errorJson = JSON.parse(errorText);
-          errorMessage = errorJson.error?.message ?? errorJson.message ?? errorText;
-        } catch {
-          errorMessage = errorText;
-        }
         return {
           status: "failed",
-          error: `Recraft API error (${response.status}): ${errorMessage}`,
+          error: `Recraft API error (${response.status}): ${summarizeProviderError(errorText)}`,
           durationMs: Date.now() - startTime,
         };
       }
@@ -239,7 +233,7 @@ export async function recraftImageToImage(
 
     if (!response.ok) {
       const errorText = await response.text();
-      return { status: "failed", error: `Recraft i2i error (${response.status}): ${errorText}`, durationMs: Date.now() - startTime };
+      return { status: "failed", error: `Recraft i2i error (${response.status}): ${summarizeProviderError(errorText)}`, durationMs: Date.now() - startTime };
     }
 
     const result = (await response.json()) as { data: Array<{ b64_json: string }> };
@@ -284,7 +278,7 @@ export async function upscaleRecraftImage(
 
     if (!response.ok) {
       const errorText = await response.text();
-      return { status: "failed", error: `Recraft upscale error (${response.status}): ${errorText}`, durationMs: Date.now() - startTime };
+      return { status: "failed", error: `Recraft upscale error (${response.status}): ${summarizeProviderError(errorText)}`, durationMs: Date.now() - startTime };
     }
 
     const result = (await response.json()) as { data: Array<{ b64_json: string }> };
@@ -322,7 +316,7 @@ export async function removeRecraftBackground(
 
     if (!response.ok) {
       const errorText = await response.text();
-      return { status: "failed", error: `Recraft bg removal error (${response.status}): ${errorText}`, durationMs: Date.now() - startTime };
+      return { status: "failed", error: `Recraft bg removal error (${response.status}): ${summarizeProviderError(errorText)}`, durationMs: Date.now() - startTime };
     }
 
     const result = (await response.json()) as { data: Array<{ b64_json: string }> };
@@ -357,7 +351,7 @@ export async function vectorizeRecraftImage(
 
     if (!response.ok) {
       const errorText = await response.text();
-      return { status: "failed", error: `Recraft vectorize error (${response.status}): ${errorText}`, durationMs: Date.now() - startTime };
+      return { status: "failed", error: `Recraft vectorize error (${response.status}): ${summarizeProviderError(errorText)}`, durationMs: Date.now() - startTime };
     }
 
     const result = (await response.json()) as { data: Array<{ url: string }> };

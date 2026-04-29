@@ -1,4 +1,5 @@
 import type { GenerationProvider, GenerationParams, GenerationResult } from "@/types";
+import { summarizeProviderError } from "@/lib/provider-errors";
 
 const IDEOGRAM_API_BASE = "https://api.ideogram.ai/v1/ideogram-v3";
 
@@ -85,7 +86,7 @@ export async function remixIdeogramImage(
 
     if (!response.ok) {
       const errorBody = await response.text();
-      return { status: "failed", error: `Ideogram remix error (${response.status}): ${errorBody}`, durationMs: Date.now() - startTime };
+      return { status: "failed", error: `Ideogram remix error (${response.status}): ${summarizeProviderError(errorBody)}`, durationMs: Date.now() - startTime };
     }
 
     const result = (await response.json()) as { data: { url: string }[] };
@@ -127,7 +128,7 @@ export async function upscaleIdeogramImage(
 
     if (!response.ok) {
       const errorBody = await response.text();
-      return { status: "failed", error: `Ideogram upscale error (${response.status}): ${errorBody}`, durationMs: Date.now() - startTime };
+      return { status: "failed", error: `Ideogram upscale error (${response.status}): ${summarizeProviderError(errorBody)}`, durationMs: Date.now() - startTime };
     }
 
     const result = (await response.json()) as { data: { url: string }[] };
@@ -221,7 +222,7 @@ export const ideogramProvider: GenerationProvider = {
         const errorBody = await response.text();
         return {
           status: "failed",
-          error: `Ideogram API error (${response.status}): ${errorBody}`,
+          error: `Ideogram API error (${response.status}): ${summarizeProviderError(errorBody)}`,
           durationMs: Date.now() - startTime,
         };
       }
@@ -289,7 +290,7 @@ export async function replaceIdeogramBackground(
 
     if (!response.ok) {
       const errorBody = await response.text();
-      return { status: "failed", error: `Ideogram replace-bg error (${response.status}): ${errorBody}`, durationMs: Date.now() - startTime };
+      return { status: "failed", error: `Ideogram replace-bg error (${response.status}): ${summarizeProviderError(errorBody)}`, durationMs: Date.now() - startTime };
     }
 
     const result = (await response.json()) as { data: { url: string }[] };
@@ -333,7 +334,7 @@ export async function generateIdeogramTransparent(
 
     if (!response.ok) {
       const errorBody = await response.text();
-      return { status: "failed", error: `Ideogram transparent error (${response.status}): ${errorBody}`, durationMs: Date.now() - startTime };
+      return { status: "failed", error: `Ideogram transparent error (${response.status}): ${summarizeProviderError(errorBody)}`, durationMs: Date.now() - startTime };
     }
 
     const result = (await response.json()) as { data: { url: string }[] };
@@ -368,7 +369,7 @@ export async function describeIdeogramImage(
 
     if (!response.ok) {
       const errorBody = await response.text();
-      return { error: `Ideogram describe error (${response.status}): ${errorBody}` };
+      return { error: `Ideogram describe error (${response.status}): ${summarizeProviderError(errorBody)}` };
     }
 
     const result = (await response.json()) as { descriptions: { text: string }[] };

@@ -1,4 +1,5 @@
 import type { GenerationProvider, GenerationParams, GenerationResult } from "@/types";
+import { summarizeProviderError } from "@/lib/provider-errors";
 
 const RUNWAY_API_BASE = "https://api.dev.runwayml.com/v1";
 
@@ -57,7 +58,7 @@ async function submitTask(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Runway API submission failed (${response.status}): ${text}`);
+    throw new Error(`Runway API submission failed (${response.status}): ${summarizeProviderError(text)}`);
   }
 
   const data = (await response.json()) as { id: string };
@@ -85,7 +86,7 @@ async function pollTask(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Runway poll failed (${response.status}): ${text}`);
+    throw new Error(`Runway poll failed (${response.status}): ${summarizeProviderError(text)}`);
   }
 
   return response.json() as Promise<{
@@ -140,7 +141,7 @@ export const runwayGen45Provider: GenerationProvider = {
     });
     if (!response.ok) {
       const text = await response.text();
-      return { status: "failed" as const, error: `Runway API failed (${response.status}): ${text}` };
+      return { status: "failed" as const, error: `Runway API failed (${response.status}): ${summarizeProviderError(text)}` };
     }
     const data = (await response.json()) as { id: string };
     return { status: "processing" as const, jobId: data.id };

@@ -1,4 +1,5 @@
 import type { GenerationProvider, GenerationParams, GenerationResult } from "@/types";
+import { summarizeProviderError } from "@/lib/provider-errors";
 
 const FAL_QUEUE_BASE = "https://queue.fal.run";
 
@@ -68,7 +69,7 @@ async function submitJob(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Wan/fal.ai submission failed (${response.status}): ${text}`);
+    throw new Error(`Wan/fal.ai submission failed (${response.status}): ${summarizeProviderError(text)}`);
   }
 
   const data = (await response.json()) as { request_id: string };
@@ -94,7 +95,7 @@ async function pollJob(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Wan/fal.ai poll failed (${response.status}): ${text}`);
+    throw new Error(`Wan/fal.ai poll failed (${response.status}): ${summarizeProviderError(text)}`);
   }
 
   return response.json();
@@ -118,7 +119,7 @@ async function getResult(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Wan/fal.ai result fetch failed (${response.status}): ${text}`);
+    throw new Error(`Wan/fal.ai result fetch failed (${response.status}): ${summarizeProviderError(text)}`);
   }
 
   return response.json();

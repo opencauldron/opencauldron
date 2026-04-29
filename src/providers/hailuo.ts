@@ -1,4 +1,5 @@
 import type { GenerationProvider, GenerationParams, GenerationResult } from "@/types";
+import { summarizeProviderError } from "@/lib/provider-errors";
 
 const MINIMAX_API_BASE = "https://api.minimax.chat/v1";
 
@@ -43,7 +44,7 @@ async function submitGeneration(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Hailuo API submission failed (${response.status}): ${text}`);
+    throw new Error(`Hailuo API submission failed (${response.status}): ${summarizeProviderError(text)}`);
   }
 
   const data = (await response.json()) as {
@@ -81,7 +82,7 @@ async function pollTask(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Hailuo poll failed (${response.status}): ${text}`);
+    throw new Error(`Hailuo poll failed (${response.status}): ${summarizeProviderError(text)}`);
   }
 
   const data = (await response.json()) as {
@@ -154,7 +155,7 @@ export const hailuoFastProvider: GenerationProvider = {
     });
     if (!response.ok) {
       const text = await response.text();
-      return { status: "failed" as const, error: `Hailuo Fast failed (${response.status}): ${text}` };
+      return { status: "failed" as const, error: `Hailuo Fast failed (${response.status}): ${summarizeProviderError(text)}` };
     }
     const data = (await response.json()) as { task_id: string; base_resp?: { status_code: number; status_msg: string } };
     if (data.base_resp && data.base_resp.status_code !== 0) {
