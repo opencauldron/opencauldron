@@ -1,62 +1,34 @@
+/**
+ * /api/references compat shim (US1 / T021).
+ *
+ * TODO(library-dam Phase 6 / T044): remove this proxy after the compat-shim
+ * release. The unified Library API at `/api/library` is the source of truth;
+ * this shim exists for one release so external bookmarks of `/api/references`
+ * (and any in-flight client deploy that hasn't picked up T022 yet) keep
+ * working.
+ *
+ * The library route returns `{ items, nextCursor }`; the legacy references
+ * client expects `{ references, nextCursor }` with a slightly narrower item
+ * shape (no `source`/`tags`/`campaigns`/`embeddedAt`/`brandId`). The library
+ * item shape is a SUPERSET of the references item shape, so we forward the
+ * request to the library handler and rename the array key in-place.
+ */
+
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { references } from "@/lib/db/schema";
-import { getAssetUrl } from "@/lib/storage";
-import { eq, desc, and, lt } from "drizzle-orm";
+import { GET as libraryGET } from "@/app/api/library/route";
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const upstream = await libraryGET(req);
 
-  const { searchParams } = new URL(req.url);
-  const cursor = searchParams.get("cursor");
-  const limit = Math.min(parseInt(searchParams.get("limit") ?? "30", 10), 100);
+  // 401 / 404 / 4xx — pass through verbatim.
+  if (!upstream.ok) return upstream;
 
-  const conditions = [eq(references.userId, session.user.id)];
-
-  if (cursor) {
-    conditions.push(lt(references.createdAt, new Date(cursor)));
-  }
-
-  const rows = await db
-    .select()
-    .from(references)
-    .where(and(...conditions))
-    .orderBy(desc(references.createdAt))
-    .limit(limit + 1);
-
-  const hasMore = rows.length > limit;
-  const refRows = hasMore ? rows.slice(0, limit) : rows;
-
-  const results = await Promise.all(
-    refRows.map(async (r) => {
-      const url = await getAssetUrl(r.r2Key);
-      const thumbnailUrl = r.thumbnailR2Key
-        ? await getAssetUrl(r.thumbnailR2Key)
-        : null;
-
-      return {
-        id: r.id,
-        userId: r.userId,
-        url,
-        thumbnailUrl: thumbnailUrl ?? url,
-        fileName: r.fileName,
-        fileSize: r.fileSize,
-        width: r.width,
-        height: r.height,
-        mimeType: r.mimeType,
-        usageCount: r.usageCount,
-        createdAt: r.createdAt,
-      };
-    })
-  );
-
-  const nextCursor = hasMore
-    ? refRows[refRows.length - 1].createdAt.toISOString()
-    : null;
-
-  return NextResponse.json({ references: results, nextCursor });
+  const data = (await upstream.json()) as {
+    items: unknown[];
+    nextCursor: string | null;
+  };
+  return NextResponse.json({
+    references: data.items,
+    nextCursor: data.nextCursor,
+  });
 }
