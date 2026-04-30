@@ -127,6 +127,13 @@
       "when": 1777733909000,
       "tag": "0017_search_vector_normalize",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1777820309000,
+      "tag": "0018_webp_variant",
+      "breakpoints": true
     }
   ]
 }

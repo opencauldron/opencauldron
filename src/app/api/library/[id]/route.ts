@@ -241,6 +241,7 @@ export async function DELETE(
       userId: assets.userId,
       r2Key: assets.r2Key,
       thumbnailR2Key: assets.thumbnailR2Key,
+      webpR2Key: assets.webpR2Key,
     })
     .from(assets)
     .where(and(eq(assets.id, id), eq(assets.userId, session.user.id)))
@@ -274,6 +275,9 @@ export async function DELETE(
     await deleteFile(asset.r2Key);
     if (asset.thumbnailR2Key) {
       await deleteFile(asset.thumbnailR2Key);
+    }
+    if (asset.webpR2Key) {
+      await deleteFile(asset.webpR2Key);
     }
   } catch (error) {
     console.error("Failed to delete library asset from storage:", error);

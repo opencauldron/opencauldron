@@ -109,6 +109,11 @@ type ListRow = {
   created_at: Date | string;
   media_type: "image" | "video";
   upload_content_type: string | null;
+  // PR `feat/webp-image-delivery-backend` additions.
+  webp_r2_key: string | null;
+  webp_file_size: number | null;
+  webp_status: "pending" | "ready" | "failed" | null;
+  original_mime_type: string | null;
 };
 
 type ListRowWithCount = ListRow & { total_count: number; [k: string]: unknown };
@@ -146,6 +151,10 @@ function rowToJoin(r: ListRow): AssetJoinRow {
       r.created_at instanceof Date ? r.created_at : new Date(r.created_at),
     mediaType: r.media_type,
     uploadContentType: r.upload_content_type,
+    webpR2Key: r.webp_r2_key,
+    webpFileSize: r.webp_file_size,
+    webpStatus: r.webp_status,
+    originalMimeType: r.original_mime_type,
   };
 }
 
@@ -280,6 +289,7 @@ export async function GET(req: NextRequest) {
         a.id, a.user_id, a.brand_id, a.r2_key, a.thumbnail_r2_key,
         a.file_name, a.file_size, a.width, a.height, a.usage_count,
         a.source, a.embedded_at, a.created_at, a.media_type,
+        a.webp_r2_key, a.webp_file_size, a.webp_status, a.original_mime_type,
         u.content_type AS upload_content_type,
         COUNT(*) OVER() AS total_count
       FROM assets a
@@ -309,6 +319,7 @@ export async function GET(req: NextRequest) {
         a.id, a.user_id, a.brand_id, a.r2_key, a.thumbnail_r2_key,
         a.file_name, a.file_size, a.width, a.height, a.usage_count,
         a.source, a.embedded_at, a.created_at, a.media_type,
+        a.webp_r2_key, a.webp_file_size, a.webp_status, a.original_mime_type,
         u.content_type AS upload_content_type,
         COUNT(*) OVER() AS total_count
       FROM assets a
