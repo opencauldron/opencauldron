@@ -107,6 +107,54 @@ export async function refreshImageInputUrls(
 }
 
 /**
+ * Encode a full-resolution WebP "display" variant for an image asset
+ * (PR `feat/webp-image-delivery-backend`, T008).
+ *
+ * Decision rules baked in here:
+ *   - Lossless when `sharp.metadata().hasAlpha === true` (typical for
+ *     OpenAI gpt-image cutouts) — avoids halos around transparent edges.
+ *   - Otherwise lossy quality 85 — consensus sweet spot.
+ *
+ * NEVER throws. Wraps every Sharp call in try/catch and returns the
+ * `{ ok: false, reason }` discriminator so the upload/generate routes
+ * can persist the asset row with `webpStatus = 'failed'` and continue
+ * (FR-013 — encoder failure must not block the asset write).
+ */
+export async function encodeDisplayWebp(
+  buffer: Buffer,
+  mimeType: string
+): Promise<
+  | { ok: true; buffer: Buffer; size: number; usedLossless: boolean }
+  | { ok: false; reason: string }
+> {
+  try {
+    // Skip non-images defensively. Callers should already gate on
+    // mediaType === 'image', but this is the seam — keep it bulletproof.
+    if (!mimeType.startsWith("image/")) {
+      return { ok: false, reason: `unsupported_mime_type: ${mimeType}` };
+    }
+    const meta = await sharp(buffer).metadata();
+    const usedLossless = meta.hasAlpha === true;
+    const out = usedLossless
+      ? await sharp(buffer).webp({ lossless: true }).toBuffer()
+      : await sharp(buffer).webp({ quality: 85 }).toBuffer();
+    return { ok: true, buffer: out, size: out.length, usedLossless };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return { ok: false, reason };
+  }
+}
+
+/**
+ * Derive the WebP display variant's R2 key from the original asset key.
+ * Centralized so the upload route, generate route, and backfill script all
+ * agree on the layout (`{originalKey}_display.webp`).
+ */
+export function displayWebpKey(originalKey: string): string {
+  return originalKey.replace(/\.[^.]+$/, "_display.webp");
+}
+
+/**
  * Generate a thumbnail and upload it.
  * Returns the thumbnail storage key.
  */

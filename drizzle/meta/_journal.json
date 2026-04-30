@@ -134,6 +134,13 @@
       "when": 1777820309000,
       "tag": "0018_smoke",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1777906709000,
+      "tag": "0019_webp_variant",
+      "breakpoints": true
     }
   ]
 }

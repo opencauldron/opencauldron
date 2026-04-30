@@ -4,6 +4,8 @@ import {
   uploadFile,
   generateAndUploadThumbnail,
   getAssetUrl,
+  encodeDisplayWebp,
+  displayWebpKey,
 } from "@/lib/storage";
 import { db } from "@/lib/db";
 import { assets, brands, uploads } from "@/lib/db/schema";
@@ -146,6 +148,13 @@ export async function POST(req: NextRequest) {
   let height: number | null = null;
   let thumbnailKey: string | null = null;
 
+  // WebP display variant fields (FR-001..FR-005, FR-013). Populated only for
+  // image uploads; videos leave webpStatus null per the locked decision.
+  let webpR2Key: string | null = null;
+  let webpFileSize: number | null = null;
+  let webpStatus: "ready" | "failed" | null = null;
+  let webpFailedReason: string | null = null;
+
   if (isImage) {
     try {
       const metadata = await sharp(buffer).metadata();
@@ -158,6 +167,36 @@ export async function POST(req: NextRequest) {
       thumbnailKey = await generateAndUploadThumbnail(buffer, key);
     } catch {
       // non-critical
+    }
+
+    // Encode the full-resolution WebP variant. Errors are caught inside the
+    // helper and surfaced via the discriminated return — this never throws.
+    // On success we PUT to `{originalKey}_display.webp`; on failure we still
+    // persist the asset row so the original remains accessible (FR-013).
+    const encoded = await encodeDisplayWebp(buffer, contentType);
+    if (encoded.ok) {
+      const webpKey = displayWebpKey(key);
+      try {
+        await uploadFile(encoded.buffer, webpKey, "image/webp");
+        webpR2Key = webpKey;
+        webpFileSize = encoded.size;
+        webpStatus = "ready";
+      } catch (err) {
+        webpStatus = "failed";
+        webpFailedReason =
+          err instanceof Error ? `r2_put: ${err.message}` : "r2_put: unknown";
+        console.error(
+          "[uploads] WebP variant R2 PUT failed (asset still saved):",
+          { key, reason: webpFailedReason }
+        );
+      }
+    } else {
+      webpStatus = "failed";
+      webpFailedReason = encoded.reason;
+      console.error(
+        "[uploads] WebP encoder failed (asset still saved):",
+        { key, reason: encoded.reason }
+      );
     }
   }
 
@@ -181,6 +220,16 @@ export async function POST(req: NextRequest) {
       r2Key: key,
       r2Url: url,
       thumbnailR2Key: thumbnailKey,
+      // WebP display variant (PR `feat/webp-image-delivery-backend`).
+      // All four fields stay null on video uploads; on image uploads the
+      // status is either 'ready' (key + size set) or 'failed' (reason set).
+      webpR2Key,
+      webpFileSize,
+      webpStatus,
+      webpFailedReason,
+      // Original mime-type lifted onto the row so PR 2's dual-format download
+      // can label "Original (PNG) · 14 MB" without joining `uploads`.
+      originalMimeType: contentType,
       // FR-004: uploads now retain their original filename in the new column.
       fileName: file.name,
       usageCount: 0,

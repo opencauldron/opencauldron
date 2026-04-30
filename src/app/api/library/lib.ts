@@ -52,6 +52,18 @@ export interface LibraryItem {
   campaigns: string[];
   embeddedAt: string | null;
   createdAt: string;
+  // WebP display variant + dual-format download fields. Hydrated for every
+  // item; null when the asset is a video, or pre-backfill, or its encoder
+  // failed. Frontend uses webpStatus to gate the UX (silent fallback to
+  // `url` when not 'ready').
+  webpUrl: string | null;
+  webpFileSize: number | null;
+  webpStatus: "pending" | "ready" | "failed" | null;
+  originalMimeType: string | null;
+  // `fileSize` above is already the original; surfaced again here under an
+  // explicit name so the dual-format download menu reads symmetrically with
+  // `webpFileSize`. Same value, kept distinct for readability.
+  originalFileSize: number | null;
 }
 
 export interface AssetJoinRow {
@@ -75,6 +87,10 @@ export interface AssetJoinRow {
   creatorName: string | null;
   creatorImage: string | null;
   creatorEmail: string | null;
+  webpR2Key: string | null;
+  webpFileSize: number | null;
+  webpStatus: "pending" | "ready" | "failed" | null;
+  originalMimeType: string | null;
 }
 
 /**
@@ -126,16 +142,23 @@ export async function hydrateLibraryItem(
   tags: string[],
   campaigns: string[]
 ): Promise<LibraryItem> {
-  const url = await getAssetUrl(row.r2Key);
-  const thumbnailUrl = row.thumbnailR2Key
-    ? await getAssetUrl(row.thumbnailR2Key)
-    : null;
+  // Resolve all storage URLs in parallel — saves a round-trip when both
+  // thumbnail and webp keys are present.
+  const [url, thumbnailUrl, webpUrl] = await Promise.all([
+    getAssetUrl(row.r2Key),
+    row.thumbnailR2Key ? getAssetUrl(row.thumbnailR2Key) : Promise.resolve(null),
+    row.webpR2Key ? getAssetUrl(row.webpR2Key) : Promise.resolve(null),
+  ]);
 
   // Legacy references always carried `mimeType`. For migrated and newly-
   // uploaded assets the paired `uploads.contentType` carries it; for
   // generations we don't track upstream MIME — fall back to a sensible value
   // derived from `mediaType` so the picker keeps rendering.
+  // Prefer the new `original_mime_type` column when present (the upload +
+  // generate routes populate it on every new write); fall back to the legacy
+  // `uploads.contentType` join, then to a mediaType-derived default.
   const mimeType =
+    row.originalMimeType ??
     row.uploadContentType ??
     (row.mediaType === "video" ? "video/mp4" : "image/png");
 
@@ -165,6 +188,11 @@ export async function hydrateLibraryItem(
     campaigns,
     embeddedAt: row.embeddedAt ? row.embeddedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
+    webpUrl,
+    webpFileSize: row.webpFileSize,
+    webpStatus: row.webpStatus,
+    originalMimeType: mimeType,
+    originalFileSize: row.fileSize,
   };
 }
 
@@ -199,6 +227,10 @@ export async function loadOwnedLibraryItem(
       creatorName: users.name,
       creatorImage: users.image,
       creatorEmail: users.email,
+      webpR2Key: assets.webpR2Key,
+      webpFileSize: assets.webpFileSize,
+      webpStatus: assets.webpStatus,
+      originalMimeType: assets.originalMimeType,
     })
     .from(assets)
     .leftJoin(uploads, eq(uploads.assetId, assets.id))
