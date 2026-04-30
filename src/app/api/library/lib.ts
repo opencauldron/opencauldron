@@ -17,8 +17,16 @@ import {
   assetTags,
   campaigns as campaignsTbl,
   uploads,
+  users,
 } from "@/lib/db/schema";
 import { getAssetUrl } from "@/lib/storage";
+
+export type AssetStatus =
+  | "draft"
+  | "in_review"
+  | "approved"
+  | "rejected"
+  | "archived";
 
 export interface LibraryItem {
   id: string;
@@ -33,6 +41,13 @@ export interface LibraryItem {
   mimeType: string | null;
   usageCount: number;
   source: "uploaded" | "generated" | "imported";
+  status: AssetStatus;
+  creator: {
+    id: string;
+    name: string | null;
+    image: string | null;
+    email: string | null;
+  } | null;
   tags: string[];
   campaigns: string[];
   embeddedAt: string | null;
@@ -51,10 +66,15 @@ export interface AssetJoinRow {
   height: number | null;
   usageCount: number;
   source: "uploaded" | "generated" | "imported";
+  status: AssetStatus;
   embeddedAt: Date | null;
   createdAt: Date;
   mediaType: "image" | "video";
   uploadContentType: string | null;
+  creatorId: string | null;
+  creatorName: string | null;
+  creatorImage: string | null;
+  creatorEmail: string | null;
 }
 
 /**
@@ -132,6 +152,15 @@ export async function hydrateLibraryItem(
     mimeType,
     usageCount: row.usageCount,
     source: row.source,
+    status: row.status,
+    creator: row.creatorId
+      ? {
+          id: row.creatorId,
+          name: row.creatorName,
+          image: row.creatorImage,
+          email: row.creatorEmail,
+        }
+      : null,
     tags,
     campaigns,
     embeddedAt: row.embeddedAt ? row.embeddedAt.toISOString() : null,
@@ -161,13 +190,19 @@ export async function loadOwnedLibraryItem(
       height: assets.height,
       usageCount: assets.usageCount,
       source: assets.source,
+      status: assets.status,
       embeddedAt: assets.embeddedAt,
       createdAt: assets.createdAt,
       mediaType: assets.mediaType,
       uploadContentType: uploads.contentType,
+      creatorId: users.id,
+      creatorName: users.name,
+      creatorImage: users.image,
+      creatorEmail: users.email,
     })
     .from(assets)
     .leftJoin(uploads, eq(uploads.assetId, assets.id))
+    .leftJoin(users, eq(users.id, assets.userId))
     .where(and(eq(assets.id, assetId), eq(assets.userId, userId)))
     .limit(1);
 

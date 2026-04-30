@@ -37,6 +37,8 @@ import { sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
+import { getCurrentWorkspace } from "@/lib/workspace/context";
+import { loadRoleContext, isWorkspaceAdmin } from "@/lib/workspace/permissions";
 import {
   type LibraryItem,
   hydrateLibraryItem,
@@ -105,10 +107,15 @@ type ListRow = {
   height: number | null;
   usage_count: number;
   source: "uploaded" | "generated" | "imported";
+  status: "draft" | "in_review" | "approved" | "rejected" | "archived";
   embedded_at: Date | string | null;
   created_at: Date | string;
   media_type: "image" | "video";
   upload_content_type: string | null;
+  creator_id: string | null;
+  creator_name: string | null;
+  creator_image: string | null;
+  creator_email: string | null;
 };
 
 type ListRowWithCount = ListRow & { total_count: number; [k: string]: unknown };
@@ -136,6 +143,7 @@ function rowToJoin(r: ListRow): AssetJoinRow {
     height: r.height,
     usageCount: r.usage_count,
     source: r.source,
+    status: r.status,
     embeddedAt:
       r.embedded_at == null
         ? null
@@ -146,6 +154,10 @@ function rowToJoin(r: ListRow): AssetJoinRow {
       r.created_at instanceof Date ? r.created_at : new Date(r.created_at),
     mediaType: r.media_type,
     uploadContentType: r.upload_content_type,
+    creatorId: r.creator_id,
+    creatorName: r.creator_name,
+    creatorImage: r.creator_image,
+    creatorEmail: r.creator_email,
   };
 }
 
@@ -191,11 +203,25 @@ export async function GET(req: NextRequest) {
   const safeCampaignId =
     campaignId && UUID_RE.test(campaignId) ? campaignId : null;
 
+  // Workspace + admin check. Admins see every asset in the workspace
+  // (matching the page's initial-render scope); members are bound to their
+  // own assets.
+  const workspace = await getCurrentWorkspace(userId);
+  const isAdmin = workspace
+    ? isWorkspaceAdmin(await loadRoleContext(userId, workspace.id))
+    : false;
+
   // Build the WHERE clause as a list of sql fragments. Final SQL is composed
   // by `sql.join(... AND ...)` — drizzle parameterizes each value, so even
   // values pulled directly from URL inputs are safe against injection.
   const where: ReturnType<typeof sql>[] = [];
-  where.push(sql`a.user_id = ${userId}`);
+  if (isAdmin && workspace) {
+    where.push(
+      sql`a.brand_id IN (SELECT id FROM brands WHERE workspace_id = ${workspace.id})`
+    );
+  } else {
+    where.push(sql`a.user_id = ${userId}`);
+  }
 
   if (safeBrandId) {
     where.push(sql`a.brand_id = ${safeBrandId}`);
@@ -279,11 +305,16 @@ export async function GET(req: NextRequest) {
       SELECT
         a.id, a.user_id, a.brand_id, a.r2_key, a.thumbnail_r2_key,
         a.file_name, a.file_size, a.width, a.height, a.usage_count,
-        a.source, a.embedded_at, a.created_at, a.media_type,
+        a.source, a.status, a.embedded_at, a.created_at, a.media_type,
         u.content_type AS upload_content_type,
+        cu.id AS creator_id,
+        cu.name AS creator_name,
+        cu.image AS creator_image,
+        cu.email AS creator_email,
         COUNT(*) OVER() AS total_count
       FROM assets a
       LEFT JOIN uploads u ON u.asset_id = a.id
+      LEFT JOIN users cu ON cu.id = a.user_id
       WHERE ${whereClause}
         AND a.search_vector @@ websearch_to_tsquery('english', ${q})
       ORDER BY ts_rank(a.search_vector, websearch_to_tsquery('english', ${q})) DESC,
@@ -308,11 +339,16 @@ export async function GET(req: NextRequest) {
       SELECT
         a.id, a.user_id, a.brand_id, a.r2_key, a.thumbnail_r2_key,
         a.file_name, a.file_size, a.width, a.height, a.usage_count,
-        a.source, a.embedded_at, a.created_at, a.media_type,
+        a.source, a.status, a.embedded_at, a.created_at, a.media_type,
         u.content_type AS upload_content_type,
+        cu.id AS creator_id,
+        cu.name AS creator_name,
+        cu.image AS creator_image,
+        cu.email AS creator_email,
         COUNT(*) OVER() AS total_count
       FROM assets a
       LEFT JOIN uploads u ON u.asset_id = a.id
+      LEFT JOIN users cu ON cu.id = a.user_id
       WHERE ${whereClause}
       ${cursorClause}
       ORDER BY a.created_at DESC, a.id DESC

@@ -3,15 +3,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  Archive,
+  CheckCircle2,
+  FileText,
   Hash,
+  Hourglass,
   ImagePlus,
   Loader2,
   SearchX,
   Sparkles,
   Wand2,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@/components/ui/avatar";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { LibraryDetailPanel, type LibraryBrand } from "./detail-panel";
@@ -40,11 +55,26 @@ import {
 
 export type AssetSource = "uploaded" | "generated" | "imported";
 
+export type AssetStatus =
+  | "draft"
+  | "in_review"
+  | "approved"
+  | "rejected"
+  | "archived";
+
+export interface AssetCreator {
+  id: string;
+  name: string | null;
+  image: string | null;
+  email: string | null;
+}
+
 export interface LibraryAsset {
   id: string;
   userId: string;
   brandId: string | null;
   source: AssetSource;
+  status: AssetStatus;
   mediaType: "image" | "video";
   url: string;
   thumbnailUrl: string;
@@ -53,6 +83,7 @@ export interface LibraryAsset {
   width: number | null;
   height: number | null;
   usageCount: number;
+  creator: AssetCreator | null;
   embeddedAt: string | null;
   createdAt: string;
   tags: string[];
@@ -439,8 +470,9 @@ function LibraryCard({
           decoding="async"
         />
 
-        <div className="absolute left-2 top-2">
+        <div className="absolute left-2 top-2 flex items-center gap-1">
           <SourceBadge source={asset.source} />
+          <StatusBadge status={asset.status} />
         </div>
 
         {asset.usageCount > 0 && (
@@ -448,6 +480,14 @@ function LibraryCard({
             <Hash className="size-2.5" aria-hidden />
             {asset.usageCount}
           </div>
+        )}
+
+        {asset.creator && (
+          <CreatorAvatar
+            creator={asset.creator}
+            source={asset.source}
+            className="absolute bottom-2 right-2"
+          />
         )}
 
         <div className="pointer-events-none absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/75 via-black/20 to-transparent p-3 opacity-0 transition-opacity duration-150 group-hover/card:opacity-100 group-focus-visible/card:opacity-100">
@@ -514,6 +554,117 @@ function SourceBadge({ source }: { source: AssetSource }) {
       ) : null}
       {label}
     </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Status badge — five variants matching the asset workflow states.
+// Icons mirror the StatusFacet in filter-bar so users recognise the chips.
+// ---------------------------------------------------------------------------
+
+function StatusBadge({ status }: { status: AssetStatus }) {
+  const config: Record<
+    AssetStatus,
+    { label: string; icon: React.ReactNode; className: string }
+  > = {
+    draft: {
+      label: "Draft",
+      icon: <FileText className="size-2.5" aria-hidden />,
+      className: "bg-background/85 text-muted-foreground ring-foreground/15",
+    },
+    in_review: {
+      label: "In review",
+      icon: <Hourglass className="size-2.5" aria-hidden />,
+      className: "bg-amber-500/15 text-amber-700 ring-amber-500/25 dark:text-amber-300",
+    },
+    approved: {
+      label: "Approved",
+      icon: <CheckCircle2 className="size-2.5" aria-hidden />,
+      className: "bg-emerald-500/15 text-emerald-700 ring-emerald-500/25 dark:text-emerald-300",
+    },
+    rejected: {
+      label: "Rejected",
+      icon: <XCircle className="size-2.5" aria-hidden />,
+      className: "bg-rose-500/15 text-rose-700 ring-rose-500/25 dark:text-rose-300",
+    },
+    archived: {
+      label: "Archived",
+      icon: <Archive className="size-2.5" aria-hidden />,
+      className: "bg-muted text-muted-foreground ring-foreground/15",
+    },
+  };
+  const { label, icon, className } = config[status];
+
+  return (
+    <span
+      data-slot="status-badge"
+      data-status={status}
+      className={cn(
+        "inline-flex h-5 items-center gap-1 rounded-md px-1.5 text-[10px] font-medium ring-1 backdrop-blur-sm",
+        className
+      )}
+    >
+      {icon}
+      {label}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Creator avatar — bottom-right of the thumbnail. Tooltip surfaces the
+// member's display name (or email local-part fallback) plus the action verb
+// derived from `source` so admins can see who shipped what at a glance.
+// ---------------------------------------------------------------------------
+
+function CreatorAvatar({
+  creator,
+  source,
+  className,
+}: {
+  creator: AssetCreator;
+  source: AssetSource;
+  className?: string;
+}) {
+  const name = creator.name?.trim() || creator.email?.split("@")[0] || "Member";
+  const initials = (() => {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return "?";
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  })();
+  const verb =
+    source === "uploaded"
+      ? "uploaded"
+      : source === "imported"
+      ? "imported"
+      : "generated";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            className={cn(
+              "inline-flex rounded-full ring-2 ring-background/80",
+              className
+            )}
+            aria-label={`${name} ${verb} this asset`}
+          >
+            <Avatar size="sm" className="size-6">
+              {creator.image ? (
+                <AvatarImage src={creator.image} alt="" />
+              ) : null}
+              <AvatarFallback className="text-[10px]">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
+          </span>
+        }
+      />
+      <TooltipContent>
+        {name} {verb} this asset
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

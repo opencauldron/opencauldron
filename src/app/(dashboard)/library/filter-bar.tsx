@@ -47,6 +47,11 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@/components/ui/avatar";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -86,7 +91,15 @@ import {
 
 export interface BrandOption {
   id: string;
+  /** Display label. For personal brands the page server resolves this to the
+   *  owner's display name (falling back to their email local-part) so admins
+   *  can tell multiple "Personal" brands apart. */
   name: string;
+  /** True when this is a per-user personal brand. Drives avatar rendering
+   *  and the pinned-to-top sort. */
+  isPersonal?: boolean;
+  /** Owner avatar URL — only set for personal brands. */
+  ownerImage?: string | null;
 }
 
 export interface CampaignOption {
@@ -233,8 +246,19 @@ export function BrandFacet({ brands }: { brands: BrandOption[] }) {
                     onSelect={() =>
                       setQuery({ brand: checked ? null : b.id })
                     }
+                    className="gap-2"
                   >
-                    {b.name}
+                    {b.isPersonal ? (
+                      <Avatar size="sm" className="size-5">
+                        {b.ownerImage ? (
+                          <AvatarImage src={b.ownerImage} alt="" />
+                        ) : null}
+                        <AvatarFallback className="text-[10px]">
+                          {initialsFor(b.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                    ) : null}
+                    <span className="truncate">{b.name}</span>
                   </CommandItem>
                 );
               })}
@@ -1011,6 +1035,13 @@ function StagedCheckboxList({
 function truncate(s: string, n: number): string {
   if (s.length <= n) return s;
   return `${s.slice(0, n - 1)}…`;
+}
+
+function initialsFor(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 function capitalize(s: string): string {
