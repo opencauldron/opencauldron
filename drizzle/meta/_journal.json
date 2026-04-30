@@ -113,6 +113,20 @@
       "when": 1777561109000,
       "tag": "0015_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1777647509000,
+      "tag": "0016_library_dam_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1777733909000,
+      "tag": "0017_search_vector_normalize",
+      "breakpoints": true
     }
   ]
 }

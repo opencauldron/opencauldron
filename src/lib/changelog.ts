@@ -6,6 +6,24 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-04-30",
+    title: "Library, upgraded for teams",
+    bullets: [
+      "Workspace admins now see every brand's assets in the Library — not just their own",
+      "Brand filter shows all the brands you have access to, with personal libraries labelled by member name and avatar so multiple Personals are easy to tell apart",
+      "Each thumbnail now shows a status chip (Draft, In review, Approved, Rejected, Archived) so you can scan workflow state without opening the asset",
+      "A creator avatar in the bottom-right of every card shows who uploaded or generated it — hover for their name and the action",
+    ],
+  },
+  {
+    date: "2026-04-30",
+    title: "Send feedback from Slack",
+    bullets: [
+      "Type /feedback in Slack to fire off a quick note, bug report, or Loom link straight to the team",
+      "A short form keeps your feedback in context — no copy-paste, no lost threads",
+    ],
+  },
+  {
     date: "2026-04-29",
     title: "Prompt enhancer, redesigned",
     bullets: [

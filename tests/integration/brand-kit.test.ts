@@ -21,7 +21,7 @@ const NO_KIT: KitRow = {
   bannedTerms: [],
   defaultLoraId: null,
   defaultLoraIds: [],
-  anchorReferenceIds: [],
+  anchorAssetIds: [],
   workspaceDefaultLoraId: null,
 };
 
@@ -194,7 +194,7 @@ describe("composeKit — anchor reference inclusion (FR-016)", () => {
   it("user-supplied refs win — anchors silent", () => {
     const kit: KitRow = {
       ...NO_KIT,
-      anchorReferenceIds: ["anchor-1", "anchor-2"],
+      anchorAssetIds: ["anchor-1", "anchor-2"],
     };
     const out = composeKit(
       baseInput({ imageInput: ["user-ref"] }),
@@ -206,7 +206,7 @@ describe("composeKit — anchor reference inclusion (FR-016)", () => {
   it("no user refs → kit anchors flow through", () => {
     const kit: KitRow = {
       ...NO_KIT,
-      anchorReferenceIds: ["anchor-1", "anchor-2"],
+      anchorAssetIds: ["anchor-1", "anchor-2"],
     };
     expect(composeKit(baseInput(), kit).imageInputFinal).toEqual([
       "anchor-1",
@@ -219,7 +219,7 @@ describe("composeKit — anchor reference inclusion (FR-016)", () => {
   });
 
   it("override=true skips anchor inclusion", () => {
-    const kit: KitRow = { ...NO_KIT, anchorReferenceIds: ["anchor-1"] };
+    const kit: KitRow = { ...NO_KIT, anchorAssetIds: ["anchor-1"] };
     expect(
       composeKit(baseInput({ override: true }), kit).imageInputFinal
     ).toEqual([]);

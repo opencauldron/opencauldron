@@ -1,47 +1,21 @@
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { references } from "@/lib/db/schema";
-import { deleteFile } from "@/lib/storage";
-import { eq, and } from "drizzle-orm";
+/**
+ * /api/references/[id] compat shim (US1 / T021).
+ *
+ * TODO(library-dam Phase 6 / T044): remove this proxy after the compat-shim
+ * release. Forwards to `/api/library/[id]`'s DELETE handler — the only
+ * verb the legacy references API exposed.
+ *
+ * GET/PATCH never existed on the references endpoint, so we don't proxy
+ * those — clients hitting them on this URL get 405 Method Not Allowed
+ * (Next.js's default for unimplemented verbs).
+ */
+
+import { NextRequest } from "next/server";
+import { DELETE as libraryDELETE } from "@/app/api/library/[id]/route";
 
 export async function DELETE(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  req: NextRequest,
+  ctx: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const { id } = await params;
-
-  const [ref] = await db
-    .select({
-      id: references.id,
-      userId: references.userId,
-      r2Key: references.r2Key,
-      thumbnailR2Key: references.thumbnailR2Key,
-    })
-    .from(references)
-    .where(and(eq(references.id, id), eq(references.userId, session.user.id)))
-    .limit(1);
-
-  if (!ref) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
-  }
-
-  // Delete from storage
-  try {
-    await deleteFile(ref.r2Key);
-    if (ref.thumbnailR2Key) {
-      await deleteFile(ref.thumbnailR2Key);
-    }
-  } catch (error) {
-    console.error("Failed to delete reference from storage:", error);
-  }
-
-  await db.delete(references).where(eq(references.id, id));
-
-  return NextResponse.json({ success: true });
+  return libraryDELETE(req, ctx);
 }

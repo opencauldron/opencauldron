@@ -6,25 +6,17 @@ import {
   getAssetUrl,
 } from "@/lib/storage";
 import { db } from "@/lib/db";
-import { assets, brands, references, uploads } from "@/lib/db/schema";
+import { assets, brands, uploads } from "@/lib/db/schema";
 import { getCurrentWorkspace } from "@/lib/workspace/context";
 import {
   canCreateAsset,
   loadBrandContext,
   loadRoleContext,
 } from "@/lib/workspace/permissions";
+import { resolvePersonalBrandId } from "@/lib/workspace/personal";
 import { nanoid } from "nanoid";
 import sharp from "sharp";
-import { and, eq } from "drizzle-orm";
-
-// Reference path (legacy) — for image inputs in /generate. 10MB images only.
-const REFERENCE_MAX_SIZE = 10 * 1024 * 1024;
-const REFERENCE_TYPES = [
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-  "image/gif",
-];
+import { eq } from "drizzle-orm";
 
 // Asset-upload validation contract lives in a sibling pure module so it can
 // be unit-tested without dragging in this route's `next/server` + DB graph.
@@ -54,6 +46,22 @@ const EXT_MAP: Record<string, string> = {
   "video/webm": "webm",
 };
 
+/**
+ * POST /api/uploads — single unified upload path post-Library/DAM cutover
+ * (T015 / FR-008). Every successful upload writes to `assets` with
+ * `source = 'uploaded'`, regardless of whether `brandId` was provided.
+ *
+ * - `brandId` (optional): named brand or the literal `"personal"` sentinel.
+ *   Absent → folded into the user's Personal brand (mirrors the Phase 2
+ *   backfill script: `brands.is_personal = true AND brands.owner_id = userId`).
+ * - Permissions: `canCreateAsset` gate on the resolved brand. Workspace admin
+ *   override applies; viewers are denied.
+ * - Response: a single shape that satisfies both consumers — the asset-
+ *   centric `upload-dropzone.tsx` (reads `data.asset`) AND the legacy
+ *   `generate-client.tsx` image-input flow (reads `data.url`). The latter
+ *   was previously served by the dropped `references` branch.
+ */
+
 export async function POST(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
@@ -69,23 +77,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "no_file" }, { status: 400 });
   }
 
-  // The presence of `brandId` is the discriminator: brand-scoped uploads land
-  // in `assets` + `uploads`; the legacy reference path is unchanged.
-  if (brandIdHint) {
-    return handleAssetUpload(userId, file, brandIdHint);
-  }
-  return handleReferenceUpload(userId, file);
-}
-
-// ---------------------------------------------------------------------------
-// Asset upload (US6 / T120)
-// ---------------------------------------------------------------------------
-
-async function handleAssetUpload(
-  userId: string,
-  file: File,
-  brandIdHint: string
-) {
   const validation = validateAssetUpload(file);
   if (!validation.ok) {
     const body: Record<string, unknown> = { error: validation.error };
@@ -100,25 +91,21 @@ async function handleAssetUpload(
     return NextResponse.json({ error: "no_workspace" }, { status: 403 });
   }
 
-  // Resolve brand. Personal sentinel: pick the user's Personal brand in this
-  // workspace; explicit uuid: must belong to this workspace.
+  // Brand resolution. Three cases:
+  //   1. `personal` sentinel              → user's Personal brand in this workspace.
+  //   2. explicit brandId (uuid)          → must belong to this workspace.
+  //   3. absent                           → fold into the user's Personal brand
+  //                                        (mirrors the Phase 2 backfill).
   let brandId: string;
-  if (brandIdHint === "personal") {
-    const [personal] = await db
-      .select({ id: brands.id })
-      .from(brands)
-      .where(
-        and(
-          eq(brands.workspaceId, workspace.id),
-          eq(brands.isPersonal, true),
-          eq(brands.ownerId, userId)
-        )
-      )
-      .limit(1);
-    if (!personal) {
-      return NextResponse.json({ error: "personal_brand_missing" }, { status: 404 });
+  if (brandIdHint === "personal" || brandIdHint === null) {
+    const personalId = await resolvePersonalBrandId(userId, workspace.id);
+    if (!personalId) {
+      return NextResponse.json(
+        { error: "personal_brand_missing" },
+        { status: 404 }
+      );
     }
-    brandId = personal.id;
+    brandId = personalId;
   } else {
     const [b] = await db
       .select({ id: brands.id, workspaceId: brands.workspaceId })
@@ -183,7 +170,7 @@ async function handleAssetUpload(
       userId,
       brandId,
       status: "draft",
-      source: "upload",
+      source: "uploaded",
       brandKitOverridden: false,
       mediaType: isImage ? "image" : "video",
       model: "upload",
@@ -194,6 +181,9 @@ async function handleAssetUpload(
       r2Key: key,
       r2Url: url,
       thumbnailR2Key: thumbnailKey,
+      // FR-004: uploads now retain their original filename in the new column.
+      fileName: file.name,
+      usageCount: 0,
       width,
       height,
       fileSize: file.size,
@@ -216,7 +206,14 @@ async function handleAssetUpload(
   const finalUrl = await getAssetUrl(key);
   const finalThumbnailUrl = thumbnailKey ? await getAssetUrl(thumbnailKey) : null;
 
+  // Single response shape that satisfies BOTH consumers:
+  //   - upload-dropzone.tsx          reads `data.asset`
+  //   - generate-client.tsx          reads `data.url` (legacy references shape)
+  // Future cleanup (Phase 6): once generate-client switches to `data.asset.url`
+  // we can drop the top-level `url`/`key` fields.
   return NextResponse.json({
+    url: finalUrl,
+    key,
     asset: {
       id: asset.id,
       brandId,
@@ -230,55 +227,4 @@ async function handleAssetUpload(
       createdAt: asset.createdAt,
     },
   });
-}
-
-// ---------------------------------------------------------------------------
-// Reference upload (legacy, used by /generate image-input)
-// ---------------------------------------------------------------------------
-
-async function handleReferenceUpload(userId: string, file: File) {
-  if (!REFERENCE_TYPES.includes(file.type)) {
-    return NextResponse.json(
-      { error: "Unsupported file type. Allowed: PNG, JPEG, WebP, GIF" },
-      { status: 400 }
-    );
-  }
-  if (file.size > REFERENCE_MAX_SIZE) {
-    return NextResponse.json(
-      { error: "File too large. Maximum size is 10 MB" },
-      { status: 400 }
-    );
-  }
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const ext = EXT_MAP[file.type] ?? "png";
-  const key = `user-uploads/${userId}/${Date.now()}-${nanoid(10)}.${ext}`;
-
-  const url = await uploadFile(buffer, key, file.type);
-
-  const metadata = await sharp(buffer).metadata();
-
-  let thumbnailKey: string | undefined;
-  try {
-    thumbnailKey = await generateAndUploadThumbnail(buffer, key);
-  } catch {
-    // Non-critical — proceed without thumbnail
-  }
-
-  const [ref] = await db
-    .insert(references)
-    .values({
-      userId,
-      r2Key: key,
-      r2Url: url,
-      thumbnailR2Key: thumbnailKey,
-      fileName: file.name,
-      fileSize: file.size,
-      width: metadata.width ?? null,
-      height: metadata.height ?? null,
-      mimeType: file.type,
-    })
-    .returning({ id: references.id });
-
-  return NextResponse.json({ url, key, referenceId: ref.id });
 }

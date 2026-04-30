@@ -192,8 +192,10 @@ describe("approval flow (T101)", () => {
 
   describe("fork-related invariants", () => {
     it("fork target is a draft with parent lineage — encoded as a contract", () => {
-      // The route writes status='draft', source='fork', parentAssetId=source.id,
-      // and a review-log row with action='forked'. Asserted by the post-fork
+      // The route writes status='draft', source='generated' (Library/DAM
+      // unification 0016 collapsed the legacy 'fork' value into 'generated';
+      // lineage is captured by parentAssetId), parentAssetId=source.id, and
+      // a review-log row with action='forked'. Asserted by the post-fork
       // shape returned to the client.
       const forkResponse = {
         asset: {
@@ -201,11 +203,11 @@ describe("approval flow (T101)", () => {
           brandId: BRAND_A,
           parentAssetId: "source-id",
           status: "draft" as const,
-          source: "fork" as const,
+          source: "generated" as const,
         },
       };
       expect(forkResponse.asset.status).toBe("draft");
-      expect(forkResponse.asset.source).toBe("fork");
+      expect(forkResponse.asset.source).toBe("generated");
       expect(forkResponse.asset.parentAssetId).toBe("source-id");
     });
   });

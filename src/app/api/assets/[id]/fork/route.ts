@@ -71,7 +71,11 @@ export async function POST(
       brandId: source.brandId,
       parentAssetId: source.id,
       status: "draft",
-      source: "fork",
+      // Library/DAM unification (0016): the source vocabulary is now
+      // uploaded | generated | imported. Forks are derivative generations,
+      // so they inherit `generated`. Lineage is still captured by
+      // parentAssetId; the fork API/UI continues to discriminate via that.
+      source: "generated",
       brandKitOverridden: false,
       mediaType: source.mediaType,
       model: source.model,

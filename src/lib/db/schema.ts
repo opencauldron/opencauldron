@@ -11,7 +11,23 @@ import {
   primaryKey,
   index,
   uniqueIndex,
+  vector,
+  customType,
 } from "drizzle-orm/pg-core";
+
+// ============================================================
+// Postgres tsvector column. Drizzle has no first-class tsvector type, but the
+// generated `search_vector` column on `assets` (declared in migration 0016) is
+// read-only at the app layer — toDriver/fromDriver pass values through as
+// strings (the rare case where the app inspects them; most code only feeds
+// the GIN index via `searchVector @@ websearch_to_tsquery(...)`).
+// ============================================================
+
+const tsvector = customType<{ data: string; driverData: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
 
 // ============================================================
 // Users
@@ -145,7 +161,10 @@ export const brands = pgTable(
       .$type<string[]>()
       .notNull()
       .default([]),
-    anchorReferenceIds: jsonb("anchor_reference_ids")
+    // Renamed from `anchor_reference_ids` in migration 0016 as part of the
+    // Library / DAM unification. JSONB shape unchanged — values are asset
+    // ids (post-backfill) instead of legacy reference ids.
+    anchorAssetIds: jsonb("anchor_asset_ids")
       .$type<string[]>()
       .notNull()
       .default([]),
@@ -253,9 +272,13 @@ export const assets = pgTable(
     })
       .notNull()
       .default("draft"),
-    source: text("source", { enum: ["generation", "upload", "fork"] })
+    // Library / DAM discriminator. Migration 0016 rewrote legacy values
+    // ("generation" → "generated", "upload" → "uploaded", "fork" → "generated"),
+    // landing on the unified vocabulary. Imports come in via the future
+    // import flow; the value is reserved here so consumers can switch on it.
+    source: text("source", { enum: ["uploaded", "generated", "imported"] })
       .notNull()
-      .default("generation"),
+      .default("generated"),
     brandKitOverridden: boolean("brand_kit_overridden")
       .notNull()
       .default(false),
@@ -271,6 +294,27 @@ export const assets = pgTable(
     r2Key: text("r2_key").notNull(),
     r2Url: text("r2_url").notNull(),
     thumbnailR2Key: text("thumbnail_r2_key"),
+    // Library/DAM additions (migration 0016).
+    // Original upload filename — uploads now retain this; generations may set
+    // a synthesized name. Nullable for legacy rows.
+    fileName: text("file_name"),
+    // Ported from references.usage_count — surfaces "recently used" affordances.
+    usageCount: integer("usage_count").notNull().default(0),
+    // CLIP-style embedding (768-dim, ViT-L/14). Populated asynchronously by
+    // the embed-assets worker; nullable until the cron picks the row up.
+    embedding: vector("embedding", { dimensions: 768 }),
+    embeddingModel: text("embedding_model"),
+    embeddedAt: timestamp("embedded_at", { withTimezone: true, mode: "date" }),
+    // Denormalized tag-name string maintained by triggers on `asset_tags` —
+    // feeds the generated search_vector below. Read-only at the app layer.
+    tagsText: text("tags_text").notNull().default(""),
+    // Generated tsvector column over file_name + prompt + tags_text.
+    // Backed by a GIN index for fast `@@ websearch_to_tsquery(...)`.
+    searchVector: tsvector("search_vector"),
+    // TEMPORARY pointer to the legacy references.id for rows backfilled by
+    // scripts/migrate-references-to-assets.ts. Dropped at cutover (Phase 6 /
+    // T043) once the compat-shim release ships clean.
+    legacyReferenceId: uuid("legacy_reference_id"),
     width: integer("width"),
     height: integer("height"),
     fileSize: integer("file_size"),
@@ -289,6 +333,16 @@ export const assets = pgTable(
     index("assets_model_idx").on(table.model),
     index("assets_media_type_idx").on(table.mediaType),
     index("assets_created_at_idx").on(table.createdAt),
+    // Library/DAM indexes (migration 0016).
+    index("assets_user_id_created_at_idx").on(table.userId, table.createdAt),
+    index("assets_source_idx").on(table.source),
+    // Note: GIN on searchVector and HNSW on embedding are declared in the
+    // SQL migration; drizzle-kit's index helper doesn't model HNSW with
+    // operator classes nor GIN over a generated tsvector cleanly enough to
+    // round-trip here. The runtime queries use raw SQL anyway.
+    uniqueIndex("assets_legacy_reference_id_uniq")
+      .on(table.legacyReferenceId)
+      .where(sql`${table.legacyReferenceId} IS NOT NULL`),
   ]
 );
 
