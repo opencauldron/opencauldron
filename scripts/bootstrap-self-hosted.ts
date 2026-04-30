@@ -10,6 +10,15 @@
  *
  * Non-interactive (CI-friendly):
  *   WORKSPACE_NAME="Acme" ADMIN_EMAIL=admin@acme.com pnpm run bootstrap
+ *
+ * SISTER FILE — DRIFT WARNING:
+ *   `scripts/bootstrap-runtime.mjs` re-implements this script's INSERTs as
+ *   raw SQL via `pg` for the Docker entrypoint (which has no TS toolchain
+ *   in the runner stage). Any change here that touches the workspace /
+ *   workspace_member / brand / brand_member shape MUST be mirrored there,
+ *   or self-host installs will diverge from `pnpm bootstrap` runs. The
+ *   end-to-end docker-compose-up regression in specs/self-host-docker
+ *   catches divergence at the integration level.
  */
 
 import { createInterface } from "node:readline/promises";

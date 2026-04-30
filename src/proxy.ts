@@ -5,12 +5,16 @@ export const proxy = auth((req) => {
   const isLoginPage = req.nextUrl.pathname === "/login";
   const isAuthApi = req.nextUrl.pathname.startsWith("/api/auth");
   const isUploadsApi = req.nextUrl.pathname.startsWith("/api/uploads");
+  // /api/health is the Docker / orchestrator liveness probe and must be
+  // reachable without auth — the HEALTHCHECK has no session cookie.
+  const isHealthApi = req.nextUrl.pathname === "/api/health";
   const isPublicBrew = req.nextUrl.pathname.startsWith("/brew/")
     || req.nextUrl.pathname.startsWith("/api/brews/explore")
     || req.nextUrl.pathname.startsWith("/api/brews/public/");
 
-  // Allow auth API routes, local upload serving, and public brew pages
-  if (isAuthApi || isUploadsApi || isPublicBrew) return;
+  // Allow auth API routes, local upload serving, the health probe, and
+  // public brew pages.
+  if (isAuthApi || isUploadsApi || isHealthApi || isPublicBrew) return;
 
   // Redirect unauthenticated users to login
   if (!isLoggedIn && !isLoginPage) {
