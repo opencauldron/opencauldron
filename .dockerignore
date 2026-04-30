@@ -1,7 +1,41 @@
+# Build artifacts and local installs — rebuilt fresh inside the deps stage.
 node_modules
 .next
-.env*
+
+# Secrets and host-only env. The container reads env from the runtime
+# `env_file: .env`, NOT a file baked into the image.
+.env
+.env.*
 !.env.example
+
+# Host upload state.
 uploads
+
+# VCS and tooling.
 .git
+.gitignore
+.github
 .claude
+.vscode
+.idea
+.husky
+
+# Test suites and dev-only configs (NFR-004 — keep image lean).
+**/__tests__
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+vitest.config.ts
+vitest.e2e.config.ts
+e2e
+
+# Specs and design docs — not needed at runtime.
+specs
+
+# OS junk.
+.DS_Store
+Thumbs.db
+
+# DO NOT add: drizzle/, scripts/, docker-entrypoint.sh, drizzle.config.ts —
+# those are explicitly required by the runner stage.
