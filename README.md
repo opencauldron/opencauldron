@@ -2,6 +2,22 @@
 
 Open source AI media generation studio. Generate images and videos with 15 AI models from a single, beautiful interface.
 
+## Self-host in 60 seconds
+
+Requires Docker + Docker Compose. You'll need a Google OAuth client ([2-minute setup](#setting-up-google-oauth)) — it's the only auth provider for now; alternatives are tracked in `specs/self-host-auth`.
+
+```bash
+curl -O https://raw.githubusercontent.com/opencauldron/opencauldron/main/docker-compose.yml
+curl -o .env https://raw.githubusercontent.com/opencauldron/opencauldron/main/.env.example
+# Edit .env: set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, WORKSPACE_NAME, ADMIN_EMAIL
+docker compose up -d
+open http://localhost:3000
+```
+
+That's it. The container generates a persistent `NEXTAUTH_SECRET`, applies all database migrations, and bootstraps your admin workspace on first boot. Sign in with the Google account you put in `ADMIN_EMAIL` and you'll land on the dashboard as `owner`.
+
+To upgrade later, see [Upgrading](#upgrading-docker-self-host). To run from source as a contributor, see [Quick Start → Option 2](#option-2-git-clone-contributor-mode).
+
 ## Features
 
 - **Multi-model support** — 10 image models + 5 video models from Google, xAI, Black Forest Labs, Ideogram, Recraft, Runway, Luma, and more
@@ -22,28 +38,42 @@ npx create-opencauldron@latest
 
 The interactive wizard walks you through database, storage, and AI provider setup — then clones the repo, generates your `.env.local`, installs dependencies, and initializes git. Follow the printed next steps to start your dev server.
 
-### Option 2: Git Clone
+### Option 2: Git Clone (contributor mode)
+
+For day-to-day work, run `pnpm dev` against the dev compose's Postgres. This is the recommended local loop — HMR works, host tooling (psql, drizzle-kit studio, IDE plugins) connects directly to the DB, no rebuild loop:
 
 ```bash
 git clone https://github.com/opencauldron/opencauldron.git
 cd opencauldron
 pnpm install
 cp .env.example .env.local    # then edit with your keys
-docker compose up db -d        # start local Postgres
-pnpm run db:push               # create tables
+docker compose -f docker-compose.dev.yml up -d   # local Postgres on :5432
+pnpm exec drizzle-kit migrate                    # apply the SQL migrations
 pnpm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
 
-### Option 3: Docker
+To validate the production Docker path (entrypoint, migration runner, healthcheck) before opening a PR, uncomment the `app` service block at the bottom of `docker-compose.dev.yml` and re-run the same command. See also the production `docker-compose.yml` for the self-host path.
+
+### Option 3: Self-host with Docker
 
 ```bash
 git clone https://github.com/opencauldron/opencauldron.git
 cd opencauldron
-cp .env.example .env.local    # then edit with your keys
-docker compose up
+cp .env.example .env       # then edit with your keys + WORKSPACE_NAME + ADMIN_EMAIL
+docker compose up -d
 ```
+
+Open [http://localhost:3000](http://localhost:3000). The container auto-applies migrations, generates a persistent `NEXTAUTH_SECRET`, and bootstraps the admin workspace on first boot.
+
+### Upgrading (Docker self-host)
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+Migrations run automatically on container start. Your data, uploads, and the persisted auth secret all live in named volumes and survive image upgrades. See the [GHCR releases page](https://github.com/opencauldron/opencauldron/pkgs/container/opencauldron) for the changelog.
 
 ## Prerequisites
 
