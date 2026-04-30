@@ -1,27 +1,53 @@
+# OpenCauldron self-host — production compose.
+#
+# Quickstart:
+#   1. cp .env.example .env
+#   2. Fill in DATABASE_URL (the default below works), GOOGLE_CLIENT_ID,
+#      GOOGLE_CLIENT_SECRET, WORKSPACE_NAME, ADMIN_EMAIL. NEXTAUTH_SECRET can
+#      be left empty — the entrypoint will generate and persist one.
+#   3. docker compose up -d
+#   4. Open http://localhost:3000.
+#
+# Upgrading: docker compose pull && docker compose up -d. Migrations apply
+# automatically on container start; the persisted NEXTAUTH_SECRET, uploads,
+# and Postgres data all live in named volumes that survive image upgrades.
+#
+# Contributors building from source: see docker-compose.dev.yml.
+
 services:
   app:
-    build: .
+    image: ghcr.io/opencauldron/opencauldron:${OPENCAULDRON_TAG:-latest}
+    restart: unless-stopped
     ports:
-      - "3000:3000"
-    env_file: .env.local
+      - "${APP_PORT:-3000}:3000"
+    env_file: .env
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - uploads:/app/uploads
+      - app-state:/app/.state
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
 
   db:
-    image: postgres:16-alpine
+    # pgvector/pgvector:pg16 is a drop-in replacement for postgres:16-alpine
+    # that ships the `vector` extension migration 0016 requires. Same env
+    # vars, same data layout — so existing pgdata volumes carry over.
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: cauldron
-      POSTGRES_PASSWORD: cauldron
-      POSTGRES_DB: cauldron
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER:-cauldron}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cauldron}
+      POSTGRES_DB: ${POSTGRES_DB:-cauldron}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U cauldron"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cauldron}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -29,3 +55,4 @@ services:
 volumes:
   pgdata:
   uploads:
+  app-state:

@@ -1,0 +1,67 @@
+# OpenCauldron contributor compose — `pnpm dev` companion + full-stack
+# fallback. Two paths in one file:
+#
+#   1. Recommended (default): `docker compose -f docker-compose.dev.yml up -d`
+#      brings up ONLY the `db` service. Run `pnpm dev` on the host pointing
+#      at `localhost:5432`. HMR works, no rebuild loop, host tooling
+#      (psql, drizzle-kit studio, IDE plugins) talks to the DB directly.
+#
+#   2. Full-stack validation: uncomment the `app` service block below and
+#      run the same command. The app container builds from the local
+#      Dockerfile (no GHCR pull) and runs the production entrypoint.
+#      Slower iteration; use this BEFORE opening a PR that touches the
+#      Dockerfile / entrypoint / migration runner.
+#
+# Both paths share the same `.env` convention as the production compose
+# (`docker-compose.yml`). If you prefer `.env.local`, change `env_file:` below.
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-cauldron}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cauldron}
+      POSTGRES_DB: ${POSTGRES_DB:-cauldron}
+    ports:
+      # Exposed on the host so `pnpm dev` and host tooling (psql,
+      # drizzle-kit studio, etc.) can connect at localhost:5432. The
+      # production compose intentionally omits this mapping.
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-cauldron}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Full-stack fallback (option 2): uncomment to also build + run the app
+  # container locally. Useful for testing the production Dockerfile path
+  # (entrypoint, migration runner, HEALTHCHECK) before opening a PR.
+  # ---------------------------------------------------------------------------
+  # app:
+  #   build: .
+  #   restart: unless-stopped
+  #   ports:
+  #     - "${APP_PORT:-3000}:3000"
+  #   env_file: .env
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #   volumes:
+  #     - uploads-dev:/app/uploads
+  #     - app-state-dev:/app/.state
+  #   healthcheck:
+  #     test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     start_period: 60s
+  #     retries: 5
+
+volumes:
+  pgdata-dev:
+  # Uncomment together with the `app` service block above.
+  # uploads-dev:
+  # app-state-dev:
