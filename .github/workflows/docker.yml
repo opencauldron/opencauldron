@@ -1,0 +1,107 @@
+name: Docker
+
+# Builds and publishes the OpenCauldron self-host image to GHCR.
+#
+# Triggers:
+#   - push to `main`         -> :edge
+#   - push of tag matching v* -> :<semver>, :<major>.<minor>, :latest
+#   - workflow_dispatch       -> ad-hoc rebuild (re-uses the same metadata logic)
+#
+# Pull requests are intentionally NOT a trigger. Fork PRs would either lack the
+# packages:write permission or spam the registry; v1 keeps the publish path
+# simple. A separate build-only PR-validation workflow can be added later.
+#
+# First-push note: GHCR creates the package as PRIVATE by default. Someone
+# with repo admin needs to flip it to public ONCE in
+#   GitHub repo -> Settings -> Packages -> opencauldron -> Change visibility
+# Subsequent pushes inherit that visibility.
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save CI minutes — a fresh push
+# to main makes the previous main build obsolete; tag builds never overlap.
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build and push (multi-arch)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (arm64 emulation)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/opencauldron
+          tags: |
+            # main branch -> :edge
+            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
+            # semver tags: vX.Y.Z -> :X.Y.Z, :X.Y, plus :latest on the highest
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+          labels: |
+            org.opencontainers.image.title=OpenCauldron
+            org.opencontainers.image.description=Open source AI media generation studio. Self-host the unified studio for image and video generation.
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.url=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=SEE-LICENSE-IN-LICENSE
+
+      - name: Build and push (linux/amd64, linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # GitHub Actions cache — shared across runs of this workflow.
+          # mode=max persists intermediate layers, which is what saves the
+          # most time on the slow arm64 cross-build.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Job summary — published tags
+        env:
+          # GitHub Actions interpolates this BEFORE the shell sees it; the env
+          # var is the safe way to ferry multi-line content into bash without
+          # word-splitting hazards.
+          META_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          # shellcheck disable=SC2016  # the sed program is single-quoted on purpose
+          {
+            echo "### Published images"
+            echo
+            echo "Tags:"
+            echo "$META_TAGS" | sed 's/^/- `/; s/$/`/'
+          } >> "$GITHUB_STEP_SUMMARY"
