@@ -7,6 +7,16 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-04-30",
+    title: "Self-hosted Docker distribution",
+    bullets: [
+      "Self-host OpenCauldron with Docker — docker compose up -d and you're running",
+      "Pre-built multi-arch images for Apple Silicon, Intel/AMD, and Raspberry Pi 4+",
+      "Database migrations and admin bootstrap run automatically on first boot",
+      "One-line upgrade path — docker compose pull && docker compose up -d",
+    ],
+  },
+  {
+    date: "2026-04-30",
     title: "Library, upgraded for teams",
     bullets: [
       "Workspace admins now see every brand's assets in the Library — not just their own",
