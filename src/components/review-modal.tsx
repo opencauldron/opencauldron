@@ -116,6 +116,10 @@ export function ReviewModal({
         onClose();
         return;
       }
+      // Pass through any modifier-held keystroke to the browser. Without
+      // this guard, Cmd/Ctrl+R (reload) hits the bare-`r` reject branch
+      // and rejects the asset instead of refreshing the page.
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (inField) return;
       if (e.key === "j") {
         e.preventDefault();
