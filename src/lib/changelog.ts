@@ -17,8 +17,6 @@ export const CHANGELOG: ChangelogEntry[] = [
   },
   {
     date: "2026-04-30",
-<<<<<<< HEAD
-=======
     title: "Faster image previews + pick your download size",
     bullets: [
       "Library and Gallery full-size previews now load a compressed WebP version — typically 90%+ smaller than the original, way faster on slow connections",
@@ -30,7 +28,6 @@ export const CHANGELOG: ChangelogEntry[] = [
   },
   {
     date: "2026-04-30",
->>>>>>> origin/main
     title: "Self-hosted Docker distribution",
     bullets: [
       "Self-host OpenCauldron with Docker — docker compose up -d and you're running",
