@@ -62,37 +62,59 @@ export function ReviewFilmstrip({
   decisions,
   onActivate,
 }: ReviewFilmstripProps) {
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+
+  // Resolve the ScrollArea viewport on mount. Base UI exposes it via
+  // [data-slot="scroll-area-viewport"]. Stored in a ref so the auto-scroll
+  // effect doesn't have to query on every index change.
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    viewportRef.current = root.querySelector<HTMLDivElement>(
+      '[data-slot="scroll-area-viewport"]'
+    );
+  }, []);
+
+  // T011 — auto-scroll the active tile to center on activeIndex change.
+  // Reduced-motion handling is added in T015 (Phase 4); for now always smooth.
+  // Effect deps are [activeIndex] only (primitive, per `rerender-dependencies`).
+  React.useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const tile = viewport.querySelector<HTMLElement>(
+      `[data-slot="filmstrip-tile"][data-index="${activeIndex}"]`
+    );
+    if (!tile) return;
+    const tileCenter = tile.offsetLeft + tile.offsetWidth / 2;
+    const target = tileCenter - viewport.clientWidth / 2;
+    viewport.scrollTo({
+      left: Math.max(0, target),
+      behavior: "smooth",
+    });
+  }, [activeIndex]);
 
   if (items.length === 0) return null;
 
   return (
     <div
+      ref={rootRef}
       data-slot="review-filmstrip"
       className={cn(
         "relative w-full shrink-0 border-t border-border/60 bg-background/60 backdrop-blur-sm",
         "h-[64px] md:h-[76px]"
       )}
     >
-      <ScrollArea
-        className="h-full w-full"
-        // Stash the viewport node so later phases (auto-scroll, IO) can attach.
-        ref={(node) => {
-          if (!node) {
-            viewportRef.current = null;
-            return;
-          }
-          // Base UI ScrollArea exposes the viewport via [data-slot="scroll-area-viewport"].
-          viewportRef.current = node.querySelector<HTMLDivElement>(
-            '[data-slot="scroll-area-viewport"]'
-          );
-        }}
-      >
+      <ScrollArea className="h-full w-full">
         <div
           className={cn(
-            "flex h-full items-center gap-2 px-4 py-2",
+            "flex h-full min-w-full items-center gap-2 px-4 py-2",
             // Center the row when the queue is short enough that the rail
-            // isn't filled — avoids a forlorn left-aligned cluster.
+            // isn't filled — avoids a forlorn left-aligned cluster. The
+            // `min-w-full` on the row + `justify-center` on a flex row that
+            // never overflows keeps short queues centered; longer queues
+            // scroll naturally because the row's natural width exceeds the
+            // viewport.
             "justify-center"
           )}
           style={{ scrollSnapType: "x mandatory" }}

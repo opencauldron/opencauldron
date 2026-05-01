@@ -22,6 +22,7 @@ import {
   ReviewTile,
   ReviewGallerySkeleton,
 } from "@/components/review-tile";
+import { nextNonDecisionedIndex } from "@/components/review-filmstrip";
 
 interface PendingBrand {
   brandId: string;
@@ -53,6 +54,21 @@ export function ReviewClient() {
   const [queueError, setQueueError] = useState(false);
   const [modalIndex, setModalIndex] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
+  // Snapshot of the queue captured when the modal opens (US1 / T012). Frozen
+  // for the modal's lifetime so the filmstrip can keep showing decisioned
+  // tiles even after `setQueue(filter)` removes them from the live queue.
+  // See specs/review-modal-filmstrip/plan.md § "Strip data source".
+  const [displayQueue, setDisplayQueue] = useState<ReviewQueueItem[] | null>(
+    null
+  );
+  // Session-scoped decisions map, keyed by asset id (US3 / T018). Reset on
+  // modal close. Drives the filmstrip's dim + marker rendering AND the j/k
+  // skip-decisioned helper. Always update via the functional setter form to
+  // avoid stale closures (per `vercel-react-best-practices`
+  // `rerender-functional-setstate`).
+  const [sessionDecisions, setSessionDecisions] = useState<
+    Map<string, "approved" | "rejected">
+  >(() => new Map());
 
   const refreshPending = useCallback(async () => {
     setPendingLoading(true);
@@ -145,23 +161,69 @@ export function ReviewClient() {
           return;
         }
         toast.success(action === "approve" ? "Approved" : "Rejected");
-        // Remove the item from the local queue and advance.
+        // US3 (T018): record the decision BEFORE filtering the queue. The
+        // decisions map uses past-tense values ("approved" | "rejected") to
+        // match the spec / FR-004; the `action` verb maps 1:1.
+        const decisionValue: "approved" | "rejected" =
+          action === "approve" ? "approved" : "rejected";
+        // Functional setter avoids stale closure and keeps the map referentially
+        // stable for memo'd FilmstripTile children. (vercel-react-best-practices
+        // `rerender-functional-setstate`.)
+        setSessionDecisions((prev) => {
+          const next = new Map(prev);
+          next.set(item.id, decisionValue);
+          return next;
+        });
+        // Remove the item from the local queue (live state) — keeps the gallery
+        // accurate. The filmstrip walks `displayQueue` (frozen snapshot) so the
+        // decisioned tile persists there with its marker.
         const remaining = (queue?.queue.length ?? 1) - 1;
         setQueue((prev) => {
           if (!prev) return prev;
           const next = prev.queue.filter((q) => q.id !== item.id);
           return { ...prev, queue: next };
         });
+        // Auto-advance: when the modal is in filmstrip-mode (`displayQueue`
+        // captured), the reviewer is walking the snapshot. After actioning the
+        // asset at `modalIndex`, advance to the next non-decisioned index in
+        // `displayQueue`. Falls back to the legacy clamped advance (live queue)
+        // when no snapshot is in play.
         setModalIndex((i) => {
+          if (displayQueue && displayQueue.length > 0) {
+            // Build the post-action decisions view from prior + this action so
+            // `nextNonDecisionedIndex` skips the just-actioned id.
+            const projected = new Map(sessionDecisions);
+            projected.set(item.id, decisionValue);
+            const fwd = nextNonDecisionedIndex(
+              displayQueue,
+              projected,
+              i,
+              1
+            );
+            if (fwd !== i) return fwd;
+            // No forward candidate — try walking back (e.g. last item in queue
+            // was the one just actioned). Falls through to `i` if no candidate
+            // exists in either direction; the queue-empties effect will close
+            // the modal in that degenerate case.
+            const back = nextNonDecisionedIndex(
+              displayQueue,
+              projected,
+              i,
+              -1
+            );
+            return back;
+          }
           if (remaining <= 0) return 0;
           return Math.min(i, remaining - 1);
         });
-        // Designer R1: Base UI's Dialog returnFocus targets the originating
-        // tile, but that tile is unmounted post-action so focus falls back to
-        // <body>. Restore focus to the surviving tile at the modal's index so
-        // a keyboard reviewer (Fern) stays in flow. Skip when the queue empties
-        // — the queue-empty effect navigates to /review and there is no tile.
-        if (remaining > 0) {
+        // Designer R1 (gallery): Base UI's Dialog returnFocus targets the
+        // originating tile, but that tile is unmounted post-action so focus
+        // falls back to <body>. Restore focus to the surviving tile at the
+        // modal's index so a keyboard reviewer (Fern) stays in flow. Skip when
+        // the queue empties — the queue-empty effect navigates to /review.
+        // Skip when the modal is still open (filmstrip mode) — the modal
+        // retains focus naturally.
+        if (remaining > 0 && !modalOpen) {
           const targetIndex = Math.min(modalIndex, remaining - 1);
           requestAnimationFrame(() => {
             const next = document.querySelector<HTMLButtonElement>(
@@ -178,21 +240,41 @@ export function ReviewClient() {
         toast.error("Network error");
       }
     },
-    [queue?.queue.length, modalIndex, refreshPending]
+    [
+      queue?.queue.length,
+      modalIndex,
+      modalOpen,
+      displayQueue,
+      sessionDecisions,
+      refreshPending,
+    ]
   );
 
   // US2 (T013): Closing the modal returns the reviewer to the gallery (URL
   // stays at /review?brand=<id>). Popping back to the brand list is handled
   // by the queue-empty effect below — only when there is genuinely nothing
   // left to triage in this brand.
+  // US3 (T018): clear the session decisions and the displayQueue snapshot on
+  // close. Markers + skip behavior are session-scoped per spec AC.
   const closeModal = useCallback(() => {
     setModalOpen(false);
+    setDisplayQueue(null);
+    setSessionDecisions(new Map());
   }, []);
 
-  const handleTileClick = useCallback((index: number) => {
-    setModalIndex(index);
-    setModalOpen(true);
-  }, []);
+  // US1 (T012): when a tile is clicked, snapshot the live queue into
+  // `displayQueue` so the filmstrip has a stable list for the modal session.
+  // The functional setter on `setSessionDecisions` is intentional even though
+  // we're resetting to empty — keeps the call site uniform with US3 updates.
+  const handleTileClick = useCallback(
+    (index: number) => {
+      setModalIndex(index);
+      setDisplayQueue(queue?.queue ?? []);
+      setSessionDecisions(new Map());
+      setModalOpen(true);
+    },
+    [queue]
+  );
 
   const handleQueueRetry = useCallback(() => {
     if (!activeBrandId) return;
@@ -306,6 +388,8 @@ export function ReviewClient() {
           onIndexChange={setModalIndex}
           onAction={handleAction}
           onClose={closeModal}
+          displayQueue={displayQueue ?? undefined}
+          sessionDecisions={sessionDecisions}
         />
       )}
     </div>
