@@ -43,7 +43,7 @@ export function ReviewTile({ item, index, onActivate }: ReviewTileProps) {
       data-index={index}
       aria-label={`Open review item ${index + 1}`}
       className={cn(
-        "group/tile relative overflow-hidden rounded-xl bg-muted text-left",
+        "group/tile relative cursor-pointer overflow-hidden rounded-xl bg-muted text-left",
         "ring-1 ring-foreground/10",
         "transition-[transform,box-shadow] duration-150 ease-out",
         "hover:-translate-y-0.5 hover:shadow-lg hover:ring-primary/40",
