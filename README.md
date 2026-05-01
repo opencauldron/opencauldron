@@ -52,13 +52,18 @@ To validate the production Docker path (entrypoint, migration runner, healthchec
 
 ### Fork your own studio
 
-If you want to build a custom studio *on top of* OpenCauldron — your own branding, your own features, your own deploy — there's a scaffolding wizard:
+If you want to build a custom studio *on top of* OpenCauldron — your own branding, your own features, your own deploy — clone the repo and run the setup wizard:
 
 ```bash
-npx create-opencauldron@latest
+git clone https://github.com/opencauldron/opencauldron.git my-studio
+cd my-studio
+pnpm install
+pnpm setup
 ```
 
-The interactive wizard walks you through database, storage, and AI provider setup — then clones the repo (without history), generates your `.env.local`, installs dependencies, and initializes a fresh git repo for your fork. **This is for forking, not for running OpenCauldron as-is** — for that, use the Docker quickstart above.
+The interactive wizard walks you through database, storage, and AI provider setup, then writes your `.env.local`. **This is for forking, not for running OpenCauldron as-is** — for that, use the Docker quickstart above.
+
+If you want to detach from OpenCauldron's git history and start fresh: `rm -rf .git && git init`.
 
 ## Upgrading (Docker self-host)
 
