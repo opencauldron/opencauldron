@@ -28,7 +28,9 @@ export type NotificationType =
   | "asset_rejected"
   | "brand_invite"
   | "workspace_invite"
-  | "review_assigned";
+  | "review_assigned"
+  | "thread_mention"
+  | "thread_reply";
 
 export interface NotificationInput {
   userId: string;

@@ -4,7 +4,7 @@ import path from "path";
 export default defineConfig({
   test: {
     setupFiles: ["./tests/setup.ts"],
-    include: ["tests/**/*.test.ts"],
+    include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
     exclude: ["tests/e2e/**"],
     fileParallelism: false,
     testTimeout: 30_000,

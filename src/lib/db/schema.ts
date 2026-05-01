@@ -780,6 +780,10 @@ export const notifications = pgTable(
         "brand_invite",
         "workspace_invite",
         "review_assigned",
+        // Asset Message Threads (migration 0018) — extend the union but the
+        // DB column is plain `text` (no CHECK), so this is the only gate.
+        "thread_mention",
+        "thread_reply",
       ],
     }).notNull(),
     payload: jsonb("payload")
@@ -797,5 +801,152 @@ export const notifications = pgTable(
       t.createdAt
     ),
     index("notifications_user_unread_idx").on(t.userId, t.readAt),
+  ]
+);
+
+// ============================================================
+// Asset Message Threads (migration 0018) — pinned per-asset chat surface.
+// One thread per asset (lazy-created on first message). Messages support
+// soft-delete, reply chains (one level deep), reactions, mentions, and
+// three discriminated attachment kinds (upload | asset_ref | external_link).
+// ============================================================
+
+export const assetThreads = pgTable(
+  "asset_threads",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    assetId: uuid("asset_id")
+      .notNull()
+      .references(() => assets.id, { onDelete: "cascade" })
+      .unique(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    messageCount: integer("message_count").notNull().default(0),
+    lastMessageAt: timestamp("last_message_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("asset_threads_workspace_idx").on(t.workspaceId)]
+);
+
+export const messages = pgTable(
+  "messages",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => assetThreads.id, { onDelete: "cascade" }),
+    // Denormalized — copy of asset_threads.workspace_id at insert time so
+    // permission checks and indexes stay local. An asset can't move
+    // workspaces in v1 so this never goes stale.
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id")
+      .notNull()
+      .references(() => users.id),
+    // Self-FK for replies. The FK is declared at the SQL level (see
+    // migration 0018); drizzle's TS-level `.references()` doesn't model
+    // self-references cleanly without circular type errors. Mirrors the
+    // `assets.parent_asset_id` pattern used for fork lineage.
+    parentMessageId: uuid("parent_message_id"),
+    body: text("body"),
+    editedAt: timestamp("edited_at", { withTimezone: true, mode: "date" }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true, mode: "date" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("messages_thread_created_idx").on(
+      t.threadId,
+      t.createdAt,
+      t.id
+    ),
+    index("messages_parent_idx")
+      .on(t.parentMessageId)
+      .where(sql`${t.parentMessageId} IS NOT NULL`),
+    index("messages_author_idx").on(t.authorId),
+    index("messages_workspace_idx").on(t.workspaceId),
+  ]
+);
+
+export const messageReactions = pgTable(
+  "message_reactions",
+  {
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // Raw unicode codepoint sequence (e.g. "\u{1F525}"). No custom emoji in v1.
+    emoji: text("emoji").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.messageId, t.userId, t.emoji] }),
+    index("message_reactions_message_idx").on(t.messageId),
+  ]
+);
+
+export const messageMentions = pgTable(
+  "message_mentions",
+  {
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    mentionedUserId: uuid("mentioned_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.messageId, t.mentionedUserId] }),
+    index("message_mentions_user_idx").on(t.mentionedUserId),
+  ]
+);
+
+export const messageAttachments = pgTable(
+  "message_attachments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    kind: text("kind", {
+      enum: ["upload", "asset_ref", "external_link"],
+    }).notNull(),
+    // upload: bytes in R2
+    r2Key: text("r2_key"),
+    r2Url: text("r2_url"),
+    mimeType: text("mime_type"),
+    fileSize: integer("file_size"),
+    width: integer("width"),
+    height: integer("height"),
+    // asset_ref: pointer to library asset
+    assetId: uuid("asset_id").references(() => assets.id, {
+      onDelete: "set null",
+    }),
+    // external_link: URL only (minimal v1 — no OG fetch)
+    url: text("url"),
+    // shared
+    displayName: text("display_name"),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("message_attachments_message_idx").on(t.messageId, t.position),
+    index("message_attachments_asset_idx")
+      .on(t.assetId)
+      .where(sql`${t.assetId} IS NOT NULL`),
   ]
 );

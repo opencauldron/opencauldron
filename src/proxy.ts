@@ -12,9 +12,20 @@ export const proxy = auth((req) => {
     || req.nextUrl.pathname.startsWith("/api/brews/explore")
     || req.nextUrl.pathname.startsWith("/api/brews/public/");
 
-  // Allow auth API routes, local upload serving, the health probe, and
-  // public brew pages.
-  if (isAuthApi || isUploadsApi || isHealthApi || isPublicBrew) return;
+  // Dev-only login shortcut. The route handler does its own gate
+  // (`NODE_ENV !== "production"` AND `DEV_LOGIN_ENABLED === "true"`); we
+  // mirror the same guard here so the middleware passes through cleanly.
+  // If either condition fails, the request falls through to the normal
+  // auth flow and the route handler returns 404.
+  const isDevLoginAllowed =
+    process.env.NODE_ENV !== "production" &&
+    process.env.DEV_LOGIN_ENABLED === "true";
+  const isDevLogin =
+    isDevLoginAllowed && req.nextUrl.pathname === "/api/dev-login";
+
+  // Allow auth API routes, local upload serving, the health probe, public
+  // brew pages, and the dev-login shortcut when both env-checks permit it.
+  if (isAuthApi || isUploadsApi || isHealthApi || isPublicBrew || isDevLogin) return;
 
   // Redirect unauthenticated users to login
   if (!isLoggedIn && !isLoginPage) {

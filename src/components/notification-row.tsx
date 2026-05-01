@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import {
+  AtSign,
   CheckCircle2,
-  XCircle,
+  ClipboardCheck,
+  CornerUpLeft,
   Inbox,
   UserPlus,
   Building2,
-  ClipboardCheck,
+  XCircle,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -23,7 +25,9 @@ export type NotificationType =
   | "asset_rejected"
   | "brand_invite"
   | "workspace_invite"
-  | "review_assigned";
+  | "review_assigned"
+  | "thread_mention"
+  | "thread_reply";
 
 export type Notification = {
   id: string;
@@ -34,6 +38,11 @@ export type Notification = {
     brandName?: string;
     assetTitle?: string;
     note?: string;
+    /** Thread-mention + thread-reply payload (FR-013, FR-014). */
+    threadId?: string;
+    messageId?: string;
+    parentMessageId?: string;
+    snippet?: string;
   };
   href: string | null;
   readAt: string | null;
@@ -63,6 +72,8 @@ const TYPE_META: Record<
   brand_invite: { Icon: Building2, label: "Brand invite" },
   workspace_invite: { Icon: UserPlus, label: "Workspace invite" },
   review_assigned: { Icon: ClipboardCheck, label: "Review assigned" },
+  thread_mention: { Icon: AtSign, label: "Mentioned you" },
+  thread_reply: { Icon: CornerUpLeft, label: "Replied to your message" },
 };
 
 function getInitials(name: string | null | undefined): string {
@@ -127,6 +138,18 @@ function NotificationBody({ n }: { n: Notification }) {
           {actor} assigned you a review on {asset}
         </>
       );
+    case "thread_mention":
+      return (
+        <>
+          {actor} mentioned you in a thread
+        </>
+      );
+    case "thread_reply":
+      return (
+        <>
+          {actor} replied to your message
+        </>
+      );
   }
 }
 
@@ -186,14 +209,17 @@ export function NotificationRow({
                 ? "text-emerald-500"
                 : notification.type === "asset_rejected"
                   ? "text-rose-500"
-                  : "text-muted-foreground"
+                  : notification.type === "thread_mention" ||
+                      notification.type === "thread_reply"
+                    ? "text-primary"
+                    : "text-muted-foreground"
             }`}
             strokeWidth={2.25}
           />
         </span>
       </div>
 
-      {/* Body + (optional) rejection note. Note renders muted + italic so
+      {/* Body + (optional) quoted snippet. Snippet renders muted + italic so
           it reads as a quoted aside rather than a header. */}
       <div className="min-w-0 flex-1">
         <p className="text-[13px] leading-snug text-muted-foreground">
@@ -206,6 +232,16 @@ export function NotificationRow({
               title={notification.payload.note}
             >
               {notification.payload.note}
+            </p>
+          )}
+        {(notification.type === "thread_mention" ||
+          notification.type === "thread_reply") &&
+          notification.payload.snippet && (
+            <p
+              className="mt-1 line-clamp-2 border-l border-primary/30 pl-2 text-[12px] italic text-muted-foreground/80"
+              title={notification.payload.snippet}
+            >
+              {notification.payload.snippet}
             </p>
           )}
       </div>
