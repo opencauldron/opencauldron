@@ -18,7 +18,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ReviewFilmstrip } from "@/components/review-filmstrip";
+import {
+  ReviewFilmstrip,
+  nextNonDecisionedIndex,
+} from "@/components/review-filmstrip";
 
 export interface ReviewQueueItem {
   id: string;
@@ -116,10 +119,22 @@ export function ReviewModal({
       if (inField) return;
       if (e.key === "j") {
         e.preventDefault();
-        if (index < queue.length - 1) onIndexChange(index + 1);
+        // US3 / T020: skip decisioned tiles. Helper returns `index` unchanged
+        // when no non-decisioned candidate exists in this direction (no
+        // wrap-around, no error per spec AC). When decisions are empty, it
+        // falls back to `index + 1` clamped to the snapshot bounds —
+        // preserves the existing single-step behavior for first-item nav.
+        const nextIdx = nextNonDecisionedIndex(stripItems, decisions, index, 1);
+        if (nextIdx !== index) onIndexChange(nextIdx);
       } else if (e.key === "k") {
         e.preventDefault();
-        if (index > 0) onIndexChange(index - 1);
+        const prevIdx = nextNonDecisionedIndex(
+          stripItems,
+          decisions,
+          index,
+          -1
+        );
+        if (prevIdx !== index) onIndexChange(prevIdx);
       } else if (e.key === "a") {
         e.preventDefault();
         if (item && item.canSelfApprove) handleAction("approve");
@@ -134,7 +149,7 @@ export function ReviewModal({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, index, queue.length, item?.id]);
+  }, [open, index, stripItems.length, item?.id, decisions]);
 
   async function handleAction(action: "approve" | "reject") {
     if (!item || submitting) return;
