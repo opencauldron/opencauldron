@@ -7,6 +7,16 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-04-30",
+    title: "Review queue opens into a gallery",
+    bullets: [
+      "Picking a brand on /review now shows a scannable gallery of pending assets — no more forced single-item modal flow",
+      "Click any tile (or press Enter on it) to open the existing review modal at that asset",
+      "Closing the modal returns you to the gallery; only the last asset reviewed pops back to the brand list",
+      "Loading, empty, and error states get tasteful Card treatments — including a Try again button if the queue fetch fails",
+    ],
+  },
+  {
+    date: "2026-04-30",
     title: "Self-hosted Docker distribution",
     bullets: [
       "Self-host OpenCauldron with Docker — docker compose up -d and you're running",
