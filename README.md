@@ -16,7 +16,7 @@ open http://localhost:3000
 
 That's it. The container generates a persistent `NEXTAUTH_SECRET`, applies all database migrations, and bootstraps your admin workspace on first boot. Sign in with the Google account you put in `ADMIN_EMAIL` and you'll land on the dashboard as `owner`.
 
-To upgrade later, see [Upgrading](#upgrading-docker-self-host). To run from source as a contributor, see [Quick Start → Option 2](#option-2-git-clone-contributor-mode).
+To upgrade later, see [Upgrading](#upgrading-docker-self-host). To run from source as a contributor or fork the project, see [Other ways to run](#other-ways-to-run).
 
 ## Features
 
@@ -28,25 +28,19 @@ To upgrade later, see [Upgrading](#upgrading-docker-self-host). To run from sour
 - **Brand management** — tag assets by brand for easy filtering
 - **Team support** — multi-user with admin controls and per-user limits
 
-## Quick Start
+## Other ways to run
 
-### Option 1: CLI Wizard (Recommended)
+The 60-second Docker quickstart above is the right path for almost everyone running OpenCauldron. Two other paths exist for different needs:
 
-```bash
-npx create-opencauldron@latest
-```
+### Contribute / develop on OpenCauldron
 
-The interactive wizard walks you through database, storage, and AI provider setup — then clones the repo, generates your `.env.local`, installs dependencies, and initializes git. Follow the printed next steps to start your dev server.
-
-### Option 2: Git Clone (contributor mode)
-
-For day-to-day work, run `pnpm dev` against the dev compose's Postgres. This is the recommended local loop — HMR works, host tooling (psql, drizzle-kit studio, IDE plugins) connects directly to the DB, no rebuild loop:
+For day-to-day work on OpenCauldron itself: run `pnpm dev` against the dev compose's Postgres. HMR works, host tooling (psql, drizzle-kit studio, IDE plugins) connects directly to the DB, no rebuild loop:
 
 ```bash
 git clone https://github.com/opencauldron/opencauldron.git
 cd opencauldron
 pnpm install
-cp .env.example .env.local    # then edit with your keys
+cp .env.example .env.local                       # then edit with your keys
 docker compose -f docker-compose.dev.yml up -d   # local Postgres on :5432
 pnpm exec drizzle-kit migrate                    # apply the SQL migrations
 pnpm run dev
@@ -54,20 +48,19 @@ pnpm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-To validate the production Docker path (entrypoint, migration runner, healthcheck) before opening a PR, uncomment the `app` service block at the bottom of `docker-compose.dev.yml` and re-run the same command. See also the production `docker-compose.yml` for the self-host path.
+To validate the production Docker path (entrypoint, migration runner, healthcheck) before opening a PR, uncomment the `app` service block at the bottom of `docker-compose.dev.yml` and re-run the same command.
 
-### Option 3: Self-host with Docker
+### Fork your own studio
+
+If you want to build a custom studio *on top of* OpenCauldron — your own branding, your own features, your own deploy — there's a scaffolding wizard:
 
 ```bash
-git clone https://github.com/opencauldron/opencauldron.git
-cd opencauldron
-cp .env.example .env       # then edit with your keys + WORKSPACE_NAME + ADMIN_EMAIL
-docker compose up -d
+npx create-opencauldron@latest
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The container auto-applies migrations, generates a persistent `NEXTAUTH_SECRET`, and bootstraps the admin workspace on first boot.
+The interactive wizard walks you through database, storage, and AI provider setup — then clones the repo (without history), generates your `.env.local`, installs dependencies, and initializes a fresh git repo for your fork. **This is for forking, not for running OpenCauldron as-is** — for that, use the Docker quickstart above.
 
-### Upgrading (Docker self-host)
+## Upgrading (Docker self-host)
 
 ```bash
 docker compose pull && docker compose up -d
@@ -77,9 +70,9 @@ Migrations run automatically on container start. Your data, uploads, and the per
 
 ## Prerequisites
 
-- [Node.js 20+](https://nodejs.org) and [pnpm](https://pnpm.io)
-- [Docker](https://docker.com) (for local Postgres) or a [Neon](https://neon.tech) database
-- A [Google Cloud](https://console.cloud.google.com/apis/credentials) project for OAuth
+**To self-host:** [Docker](https://docker.com) + Docker Compose, plus a [Google Cloud](https://console.cloud.google.com/apis/credentials) project for OAuth. Nothing else is needed on the host.
+
+**To develop or fork:** Additionally, [Node.js 20+](https://nodejs.org) and [pnpm](https://pnpm.io). A [Neon](https://neon.tech) database is supported as an alternative to the bundled Postgres.
 
 ## Configuration
 
@@ -87,11 +80,13 @@ Migrations run automatically on container start. Your data, uploads, and the per
 
 | Variable | Description |
 |---|---|
-| `DATABASE_URL` | PostgreSQL connection string |
+| `DATABASE_URL` | PostgreSQL connection string. Defaults to the bundled Postgres in the Docker self-host path. |
 | `NEXTAUTH_URL` | App URL (default: `http://localhost:3000`) |
-| `NEXTAUTH_SECRET` | Random secret — generate with `openssl rand -base64 32` |
+| `NEXTAUTH_SECRET` | Random secret. **Auto-generated and persisted on first boot for Docker self-host.** For dev/fork, generate with `openssl rand -base64 32`. |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
+| `WORKSPACE_NAME` | (Self-host only) Studio name for first-boot bootstrap. Optional — bootstrap can also run interactively. |
+| `ADMIN_EMAIL` | (Self-host only) Email for the admin account created on first boot. Must match the Google account used to sign in. |
 
 ### Storage
 
@@ -175,16 +170,20 @@ Models without a configured API key are automatically hidden from the UI. Add ke
 
 ## Database Migrations
 
-```bash
-# Push schema to database (development)
-pnpm run db:push
+The Docker self-host path runs migrations automatically on container start — you don't need to invoke anything by hand. The commands below are for the contributor / fork workflows.
 
-# Generate and run migrations (production)
-pnpm run db:migrate
+```bash
+# Apply all SQL migrations to your DB (canonical command)
+pnpm exec drizzle-kit migrate
+
+# Generate a new migration after editing src/lib/db/schema.ts
+pnpm exec drizzle-kit generate
 
 # Open Drizzle Studio (visual DB browser)
 pnpm run db:studio
 ```
+
+> **Note:** `drizzle-kit push` (sometimes seen in older docs) bypasses the migration history and fails on a fresh database when extensions like `pgvector` are required. Always use `drizzle-kit migrate`.
 
 ## Project Structure
 
