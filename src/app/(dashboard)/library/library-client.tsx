@@ -601,7 +601,7 @@ function LibraryCard({
       onClick={onClick}
       data-slot="library-card"
       className={cn(
-        "group/card relative overflow-hidden rounded-xl bg-muted text-left",
+        "group/card relative cursor-pointer overflow-hidden rounded-xl bg-muted text-left",
         "ring-1 ring-foreground/10",
         "hover:-translate-y-0.5 hover:shadow-lg hover:ring-primary/40",
         "active:translate-y-px",
