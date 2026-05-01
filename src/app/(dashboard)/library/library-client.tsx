@@ -102,6 +102,17 @@ export interface LibraryAsset {
   originalFileSize: number | null;
 }
 
+/**
+ * Viewer info threaded through to the detail panel's Thread tab. Sourced from
+ * the server-side `auth()` session in `page.tsx` so the client doesn't have
+ * to re-resolve it.
+ */
+export interface LibraryViewer {
+  id: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
+
 interface LibraryClientProps {
   initialItems: LibraryAsset[];
   initialNextCursor: string | null;
@@ -111,6 +122,8 @@ interface LibraryClientProps {
   facetCampaigns: CampaignOption[];
   facetTags: TagOption[];
   hasMixedStatuses: boolean;
+  viewer: LibraryViewer;
+  threadsEnabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -183,6 +196,8 @@ function LibraryGridContainer({
   initialNextCursor,
   initialTotal,
   initialBrands,
+  viewer,
+  threadsEnabled,
 }: LibraryClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -359,8 +374,127 @@ function LibraryGridContainer({
     [refreshBrands]
   );
 
+  // ?asset=<id>&message=<id> deep-links the panel open + Thread tab focused
+  // (e.g. clicking a thread mention notification). Pattern: track the
+  // previous URL value alongside `selectedId`, and call setState during
+  // render guarded by the change. The initial state is a sentinel (not the
+  // current URL) so the FIRST render — which is the one that lands a deep-
+  // link — sees a "change" and opens the panel.
+  // (https://react.dev/reference/react/useState#storing-information-from-previous-renders)
+  const urlAssetId = searchParams.get("asset");
+  const urlMessageId = searchParams.get("message");
+  const URL_INIT_SENTINEL = "__init__";
+  const [prevUrlAssetId, setPrevUrlAssetId] = useState<string | null>(
+    URL_INIT_SENTINEL
+  );
+  if (urlAssetId !== prevUrlAssetId) {
+    setPrevUrlAssetId(urlAssetId);
+    if (urlAssetId && urlAssetId !== selectedId) {
+      setSelectedId(urlAssetId);
+    }
+  }
+
+  // Cross-workspace lazy hydration: when the URL deep-links to an asset that
+  // isn't in the viewer's owner-scoped initial paint (e.g. Adrian clicks a
+  // mention notification on Adam's asset), fall back to the workspace-scoped
+  // `/api/threads/asset-ref/<id>` endpoint to hydrate just that asset. The
+  // thread route exists from Phase 5 (T047) and is workspace-scoped — it
+  // correctly resolves teammate-authored assets in the same workspace.
+  //
+  // Pattern: the fetch lives in an effect (it's I/O on a value derived from
+  // props/state). The "set lazyAsset to null when items now contain it" path
+  // is handled during render via a previous-prop ref + guarded setState
+  // (mirrors the URL-sentinel pattern above) so eslint's
+  // `react-hooks/set-state-in-effect` rule stays clean.
+  const [lazyAsset, setLazyAsset] = useState<LibraryAsset | null>(null);
+  const lazyAssetRequestedRef = useRef<string | null>(null);
+
+  // Render-time reset: if `selectedId` falls back into `items` (e.g. infinite
+  // scroll loaded the page that contains it), drop the stub. Setting state
+  // is the React 19 recipe — the ref reset moves into the effect below to
+  // satisfy `react-hooks/refs`.
+  if (lazyAsset && (!selectedId || items.some((it) => it.id === selectedId))) {
+    setLazyAsset(null);
+  }
+
+  useEffect(() => {
+    if (!threadsEnabled) return;
+    if (!selectedId) {
+      lazyAssetRequestedRef.current = null;
+      return;
+    }
+    if (items.some((it) => it.id === selectedId)) {
+      lazyAssetRequestedRef.current = null;
+      return;
+    }
+    if (lazyAssetRequestedRef.current === selectedId) return;
+    lazyAssetRequestedRef.current = selectedId;
+
+    let cancelled = false;
+    fetch(`/api/threads/asset-ref/${selectedId}`, { cache: "no-store" })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return (await res.json()) as {
+          asset: {
+            id: string;
+            brandId: string | null;
+            url: string;
+            thumbnailUrl: string;
+            fileName: string | null;
+            width: number | null;
+            height: number | null;
+            source: AssetSource;
+            mediaType: "image" | "video";
+            mimeType: string | null;
+          };
+        };
+      })
+      .then((data) => {
+        if (cancelled || !data) return;
+        // Stub LibraryAsset — only the fields the panel reads on initial
+        // paint. The Thread tab is the destination of the deep-link, so the
+        // Info tab's metadata can be skeletal; the real asset is owned by
+        // someone else and they're the source of truth. The panel renders
+        // file-name + preview + thread, which is what we hydrate here.
+        const stub: LibraryAsset = {
+          id: data.asset.id,
+          userId: "", // unknown — viewer is not the owner
+          brandId: data.asset.brandId,
+          source: data.asset.source,
+          status: "approved",
+          mediaType: data.asset.mediaType,
+          url: data.asset.url,
+          thumbnailUrl: data.asset.thumbnailUrl,
+          fileName: data.asset.fileName,
+          fileSize: null,
+          width: data.asset.width,
+          height: data.asset.height,
+          usageCount: 0,
+          creator: null,
+          embeddedAt: null,
+          createdAt: new Date().toISOString(),
+          tags: [],
+          campaigns: [],
+          webpUrl: null,
+          webpFileSize: null,
+          webpStatus: null,
+          originalMimeType: data.asset.mimeType,
+          originalFileSize: null,
+        };
+        setLazyAsset(stub);
+      })
+      .catch(() => {
+        // Silent — the panel will simply stay closed (selected = null below).
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, items, threadsEnabled]);
+
   const selected = selectedId
-    ? items.find((it) => it.id === selectedId) ?? null
+    ? items.find((it) => it.id === selectedId) ??
+      (lazyAsset && lazyAsset.id === selectedId ? lazyAsset : null)
     : null;
 
   // Empty states differ based on whether filters are active.
@@ -415,6 +549,9 @@ function LibraryGridContainer({
         onAssetUpdate={handleAssetUpdate}
         onAssetDelete={handleAssetDelete}
         onBrandPinChange={handleBrandPinChange}
+        viewer={viewer}
+        threadsEnabled={threadsEnabled}
+        initialMessageId={urlMessageId}
       />
     </div>
   );

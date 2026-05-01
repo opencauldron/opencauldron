@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Hash,
   Loader2,
+  MessageSquareText,
   Pin,
   Sparkles,
   Trash2,
@@ -34,8 +35,15 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { AssetDownloadButton } from "@/components/library/asset-download-button";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import type { LibraryAsset } from "./library-client";
+import type { LibraryAsset, LibraryViewer } from "./library-client";
+import { ThreadPanel } from "./threads/thread-panel";
 
 export interface LibraryBrand {
   id: string;
@@ -56,6 +64,22 @@ interface LibraryDetailPanelProps {
     assetId: string,
     pinned: boolean
   ) => void;
+  /**
+   * Current viewer — sourced from the server-side session in `page.tsx`.
+   * Threaded down so the Thread tab can render the composer without
+   * re-resolving the session client-side.
+   */
+  viewer: LibraryViewer;
+  /**
+   * `THREADS_ENABLED` flag (server-derived). When false, the Thread tab is
+   * hidden and the panel reverts to the legacy single-pane Info-only layout.
+   */
+  threadsEnabled: boolean;
+  /**
+   * If a `?message=<id>` is in the URL (deep link from a notification), the
+   * panel opens with the Thread tab focused + the row highlighted.
+   */
+  initialMessageId?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +97,13 @@ export function LibraryDetailPanel({
   onAssetUpdate,
   onAssetDelete,
   onBrandPinChange,
+  viewer,
+  threadsEnabled,
+  initialMessageId,
 }: LibraryDetailPanelProps) {
+  // Sheet itself doesn't scroll when threads are enabled — the Thread tab
+  // owns its own scroll region and the composer needs to pin to the bottom.
+  // For Info-only mode we keep the legacy `overflow-y-auto` behavior.
   return (
     <Sheet
       open={asset !== null}
@@ -83,7 +113,12 @@ export function LibraryDetailPanel({
     >
       <SheetContent
         side="right"
-        className="w-full gap-0 overflow-y-auto sm:!max-w-md"
+        className={cn(
+          "w-full gap-0 sm:!max-w-md",
+          threadsEnabled
+            ? "flex flex-col overflow-hidden"
+            : "overflow-y-auto"
+        )}
       >
         {asset ? (
           <DetailPanelBody
@@ -92,6 +127,9 @@ export function LibraryDetailPanel({
             onAssetUpdate={onAssetUpdate}
             onAssetDelete={onAssetDelete}
             onBrandPinChange={onBrandPinChange}
+            viewer={viewer}
+            threadsEnabled={threadsEnabled}
+            initialMessageId={initialMessageId ?? null}
           />
         ) : null}
       </SheetContent>
@@ -111,6 +149,9 @@ function DetailPanelBody({
   onAssetUpdate,
   onAssetDelete,
   onBrandPinChange,
+  viewer,
+  threadsEnabled,
+  initialMessageId,
 }: {
   asset: LibraryAsset;
   brands: LibraryBrand[];
@@ -121,10 +162,18 @@ function DetailPanelBody({
     assetId: string,
     pinned: boolean
   ) => void;
+  viewer: LibraryViewer;
+  threadsEnabled: boolean;
+  initialMessageId: string | null;
 }) {
   const router = useRouter();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // When deep-linked via `?message=<id>` the panel opens with the Thread tab
+  // selected; otherwise default to Info for parity with current behavior.
+  const [activeTab, setActiveTab] = useState<string>(
+    threadsEnabled && initialMessageId ? "thread" : "info"
+  );
 
   const handleUse = () => {
     const params = new URLSearchParams({ imageInput: asset.url });
@@ -148,19 +197,8 @@ function DetailPanelBody({
     }
   };
 
-  return (
+  const infoBody = (
     <>
-      <SheetHeader className="px-5 pt-5 pb-3">
-        <SheetTitle className="truncate pr-8">
-          {asset.fileName ?? "Untitled asset"}
-        </SheetTitle>
-        <SheetDescription>
-          {formatRelativeDate(asset.createdAt)} · {humanSource(asset.source)}
-        </SheetDescription>
-      </SheetHeader>
-
-      <Separator />
-
       <div className="flex flex-col gap-5 px-5 py-5">
         {/* Preview — prefer the smaller WebP rendition when the encoder has
             produced one (FR-008 / spec US2). Falls back to the original URL
@@ -264,51 +302,154 @@ function DetailPanelBody({
           </Button>
         </div>
       </SheetFooter>
-
-      <Dialog
-        open={confirmDelete}
-        onOpenChange={(open) => {
-          if (!open) setConfirmDelete(false);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete asset?</DialogTitle>
-            <DialogDescription>
-              This permanently removes the asset and its thumbnail from
-              storage. Brews and history that referenced it will keep their
-              copies.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="ghost"
-              onClick={() => setConfirmDelete(false)}
-              disabled={deleting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={deleting}
-            >
-              {deleting ? (
-                <>
-                  <Loader2 className="animate-spin" aria-hidden />
-                  Deleting…
-                </>
-              ) : (
-                <>
-                  <Trash2 aria-hidden />
-                  Delete
-                </>
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
+  );
+
+  const deleteDialog = (
+    <DeleteAssetDialog
+      open={confirmDelete}
+      deleting={deleting}
+      onOpenChange={(open) => setConfirmDelete(open)}
+      onConfirm={handleDelete}
+    />
+  );
+
+  // Threads disabled — render the legacy Info-only layout. Keeps the diff
+  // minimal for environments where the flag is off.
+  if (!threadsEnabled) {
+    return (
+      <>
+        <SheetHeader className="px-5 pt-5 pb-3">
+          <SheetTitle className="truncate pr-8">
+            {asset.fileName ?? "Untitled asset"}
+          </SheetTitle>
+          <SheetDescription>
+            {formatRelativeDate(asset.createdAt)} · {humanSource(asset.source)}
+          </SheetDescription>
+        </SheetHeader>
+        <Separator />
+        {infoBody}
+        {deleteDialog}
+      </>
+    );
+  }
+
+  // Threads enabled — Tabs strip wraps the content. Info tab is scroll-its-own
+  // region (so the page doesn't have two scrollbars). Thread tab fills the
+  // remaining height with `flex-1 min-h-0` so the composer stays pinned.
+  return (
+    <>
+      <SheetHeader className="px-5 pt-5 pb-3">
+        <SheetTitle className="truncate pr-8">
+          {asset.fileName ?? "Untitled asset"}
+        </SheetTitle>
+        <SheetDescription>
+          {formatRelativeDate(asset.createdAt)} · {humanSource(asset.source)}
+        </SheetDescription>
+      </SheetHeader>
+
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => {
+          if (typeof value === "string") setActiveTab(value);
+        }}
+        className="flex min-h-0 flex-1 flex-col gap-0"
+      >
+        <div className="border-b border-border bg-background px-5 py-2">
+          <TabsList variant="line" className="w-full justify-start gap-3">
+            <TabsTrigger value="info">Info</TabsTrigger>
+            <TabsTrigger value="thread">
+              <MessageSquareText aria-hidden />
+              Thread
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent
+          value="info"
+          className="flex-1 overflow-y-auto data-active:flex data-active:flex-col"
+        >
+          {infoBody}
+        </TabsContent>
+
+        <TabsContent
+          value="thread"
+          className="flex min-h-0 flex-1 flex-col data-[hidden]:hidden"
+        >
+          <ThreadPanel
+            // Re-mount on asset change so the stream resets cleanly.
+            key={asset.id}
+            assetId={asset.id}
+            viewer={viewer}
+            highlightMessageId={initialMessageId}
+          />
+        </TabsContent>
+      </Tabs>
+
+      {deleteDialog}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Delete-confirmation dialog (extracted so the threads-enabled + threads-
+// disabled branches can both render it without duplicating ~30 lines of JSX).
+// ---------------------------------------------------------------------------
+
+function DeleteAssetDialog({
+  open,
+  deleting,
+  onOpenChange,
+  onConfirm,
+}: {
+  open: boolean;
+  deleting: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onOpenChange(false);
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete asset?</DialogTitle>
+          <DialogDescription>
+            This permanently removes the asset and its thumbnail from storage.
+            Brews and history that referenced it will keep their copies.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+            disabled={deleting}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            onClick={onConfirm}
+            disabled={deleting}
+          >
+            {deleting ? (
+              <>
+                <Loader2 className="animate-spin" aria-hidden />
+                Deleting…
+              </>
+            ) : (
+              <>
+                <Trash2 aria-hidden />
+                Delete
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

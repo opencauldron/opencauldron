@@ -22,6 +22,58 @@ const envSchema = z.object({
     .default("false")
     .transform((v) => v === "true"),
 
+  // Asset Message Threads — gates every thread API + the UI surface. Ship
+  // dark, flip to "true" once the migration is applied + smoke-tested. Every
+  // thread route MUST 404 when this is false (the surface stays invisible).
+  THREADS_ENABLED: z
+    .union([z.literal("true"), z.literal("false")])
+    .default("false")
+    .transform((v) => v === "true"),
+
+  // Dev-only login shortcut for automated browser QA. Honored ONLY when
+  // BOTH `NODE_ENV !== "production"` AND `DEV_LOGIN_ENABLED === "true"` —
+  // see `src/app/api/dev-login/route.ts` for the exact gate. The flag is
+  // `false` by default and a build-time check in `next.config.ts` aborts
+  // production builds where it's set to true. NEVER enable in prod.
+  DEV_LOGIN_ENABLED: z
+    .union([z.literal("true"), z.literal("false")])
+    .default("false")
+    .transform((v) => v === "true"),
+
+  // SSE liveness — heartbeat keeps proxies from killing the connection;
+  // proactive reconnect lands inside Vercel's 5-minute serverless timeout.
+  SSE_HEARTBEAT_MS: z.coerce.number().int().positive().default(25_000),
+  SSE_RECONNECT_MS: z.coerce.number().int().positive().default(270_000),
+
+  // Per-(user, thread) write rate limits. Buckets live in-process; the cap is
+  // per Node instance, so a user opening many tabs can exceed slightly when a
+  // load balancer fans them across instances — that's an accepted v1 limit.
+  THREAD_RATE_LIMIT_MAX_PER_MIN: z.coerce.number().int().positive().default(20),
+  THREAD_RATE_LIMIT_BURST_PER_5S: z.coerce.number().int().positive().default(5),
+  /**
+   * Reactions get a separate, slightly more permissive ceiling per NFR-004
+   * (30/min vs the 20/min message cap). Same per-(user, thread) bucket
+   * structure, just a different ceiling passed at check time.
+   */
+  THREAD_REACTION_RATE_LIMIT_MAX_PER_MIN: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(30),
+
+  /**
+   * Per-user trailing-24h thread upload soft-cap (T054). Uploaded bytes
+   * across the user's `message_attachments` in the last 24h must stay under
+   * this. 1 GiB default. Going over returns 413 + a `Retry-After` hint.
+   * `asset_ref` and `external_link` attachments do NOT count — they don't
+   * own R2 bytes.
+   */
+  THREAD_USER_DAILY_STORAGE_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(1_073_741_824),
+
   // Auth
   NEXTAUTH_URL: z.string().url().optional(),
   NEXTAUTH_SECRET: z.string().min(1),

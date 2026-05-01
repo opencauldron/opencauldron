@@ -6,6 +6,18 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-05-01",
+    title: "Threads on every asset",
+    bullets: [
+      "Every Library asset now has a Thread tab — pin a conversation right next to the work itself, not in a separate Slack channel",
+      "Messages stream in real time, so a teammate's note shows up the moment they hit send",
+      "React with any emoji, @-mention a workspace member, or reply to a specific message to keep tangents readable",
+      "Paste or drag images, GIFs, and video clips straight into a message — they upload inline and render in the thread",
+      "Attach an existing Library asset to a message with one click — the recipient sees a tactile asset card that opens the original",
+      "Mention notifications drop into your bell with a deep-link that opens the asset and jumps to the message",
+    ],
+  },
+  {
     date: "2026-04-30",
     title: "Review queue opens into a gallery",
     bullets: [

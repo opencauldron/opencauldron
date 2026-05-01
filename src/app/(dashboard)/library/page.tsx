@@ -363,6 +363,12 @@ export default async function LibraryPage() {
         facetCampaigns={facetCampaigns}
         facetTags={facetTags}
         hasMixedStatuses={hasMixedStatuses}
+        viewer={{
+          id: userId,
+          displayName: session.user.name ?? null,
+          avatarUrl: session.user.image ?? null,
+        }}
+        threadsEnabled={env.THREADS_ENABLED}
       />
     </div>
   );

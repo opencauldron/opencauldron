@@ -181,3 +181,19 @@
   transform-origin: left center;
   animation: undoTimeout 8s linear forwards;
 }
+
+/*
+ * Thread message-row "jump-to" pulse (T040). One-shot 1.6s primary tint
+ * fade — used when a user clicks "Replying to X" or arrives via a
+ * deep-link `?message=<id>`. Cribs from `promptShimmer`'s feel but is
+ * one-pass + tighter so it doesn't compete with the message read.
+ */
+@keyframes threadHighlightPulse {
+  0%   { background-color: color-mix(in oklab, var(--primary) 20%, transparent); }
+  60%  { background-color: color-mix(in oklab, var(--primary) 8%, transparent); }
+  100% { background-color: transparent; }
+}
+
+.thread-highlight-pulse {
+  animation: threadHighlightPulse 1.6s ease-out forwards;
+}
