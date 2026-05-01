@@ -177,15 +177,20 @@ export function ReviewModal({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[92vh] w-[min(96vw,1100px)] overflow-hidden p-0 sm:max-w-[1100px]">
-        <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_360px]">
-          <div className="flex min-h-[60vh] flex-col bg-black/95">
-            <div className="relative flex flex-1 items-center justify-center p-4">
+      <DialogContent className="h-[92vh] w-[min(96vw,1100px)] overflow-hidden p-0 sm:max-w-[1100px]">
+        <div className="grid h-full grid-cols-1 md:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="flex min-h-0 flex-col bg-black/95">
+            {/* Image area — `min-h-0` lets the flex-1 child actually shrink
+                below its content's intrinsic size so the filmstrip rail
+                (shrink-0, 64–76px) at the bottom of the column stays inside
+                the dialog viewport. The image gets `max-h-full` so it
+                letterboxes inside whatever space is left after the rail. */}
+            <div className="relative flex min-h-0 flex-1 items-center justify-center p-4">
               {item.mediaType === "video" ? (
                 <video
                   src={item.url}
                   controls
-                  className="max-h-[88vh] max-w-full rounded"
+                  className="max-h-full max-w-full rounded"
                 />
               ) : (
                 <Image
@@ -193,7 +198,7 @@ export function ReviewModal({
                   alt={item.prompt}
                   width={item.width ?? 1024}
                   height={item.height ?? 1024}
-                  className="max-h-[88vh] w-auto rounded object-contain"
+                  className="max-h-full w-auto rounded object-contain"
                   unoptimized
                 />
               )}
