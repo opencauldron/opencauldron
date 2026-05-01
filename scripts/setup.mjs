@@ -135,7 +135,7 @@ async function main() {
       accountId: () => p.text({ message: "R2 Account ID" }),
       accessKeyId: () => p.text({ message: "R2 Access Key ID" }),
       secretAccessKey: () => p.text({ message: "R2 Secret Access Key" }),
-      bucketName: () => p.text({ message: "R2 Bucket Name", placeholder: "cauldron", defaultValue: "cauldron" }),
+      bucketName: () => p.text({ message: "R2 Bucket Name", placeholder: "opencauldron", defaultValue: "opencauldron" }),
     });
     if (p.isCancel(r2)) cancelled();
     r2Config = r2;

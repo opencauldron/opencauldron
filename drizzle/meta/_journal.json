@@ -148,6 +148,20 @@
       "when": 1777993109000,
       "tag": "0020_asset_threads_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1778079509000,
+      "tag": "0021_thread_storage_counter",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1778165909000,
+      "tag": "0022_rename_cauldron_brand",
+      "breakpoints": true
     }
   ]
 }

@@ -486,7 +486,7 @@ function SidebarPreview() {
         <div className="flex items-center gap-3">
           <AppLogo size={36} />
           <div>
-            <p className="font-heading text-base font-bold" style={{ color: "var(--sidebar-foreground)" }}>Cauldron</p>
+            <p className="font-heading text-base font-bold" style={{ color: "var(--sidebar-foreground)" }}>OpenCauldron</p>
             <p className="text-[10px] font-medium uppercase tracking-widest" style={{ color: "var(--muted-foreground)" }}>
               Studio
             </p>
@@ -716,7 +716,7 @@ export default function StyleguidePage() {
                 WebkitTextFillColor: "transparent",
               }}
             >
-              Cauldron Design System
+              OpenCauldron Design System
             </h1>
             <p className="mt-3 max-w-md text-sm leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
               Proposed magical indigo theme with wand identity.
@@ -977,7 +977,7 @@ export default function StyleguidePage() {
           style={{ borderColor: "var(--border)" }}
         >
           <p className="text-xs" style={{ color: "var(--muted-foreground)" }}>
-            Style Guide — Cauldron Studio
+            Style Guide — OpenCauldron
           </p>
         </footer>
       </div>

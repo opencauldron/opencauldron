@@ -8,7 +8,7 @@
  *   pnpm tsx scripts/verify-migration.ts --smoke-public-slugs=https://studio.taboogrow.com
  *
  * Hard assertions:
- *   - Three seed brands (`Taboo Grow`, `GIDDI`, `Cauldron`) exist exactly once
+ *   - Three seed brands (`Taboo Grow`, `GIDDI`, `OpenCauldron`) exist exactly once
  *     each in the bootstrap workspace (`taboogrow`).
  *   - Personal-brand count equals workspace_member count.
  *   - No orphan brews (`brand_id IS NULL`).
@@ -83,11 +83,11 @@ async function main() {
     if (wsId) {
       const { rows: seedRows } = await pool.query<{ name: string; cnt: number }>(
         `SELECT name, COUNT(*)::int AS cnt FROM brands
-          WHERE workspace_id = $1 AND name IN ('Taboo Grow','GIDDI','Cauldron')
+          WHERE workspace_id = $1 AND name IN ('Taboo Grow','GIDDI','OpenCauldron')
           GROUP BY name`,
         [wsId]
       );
-      const want = ["Taboo Grow", "GIDDI", "Cauldron"];
+      const want = ["Taboo Grow", "GIDDI", "OpenCauldron"];
       for (const name of want) {
         const row = seedRows.find((r) => r.name === name);
         record(

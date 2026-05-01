@@ -68,7 +68,7 @@ async function main() {
     await pool.query(`
       DELETE FROM brand_members;
       DELETE FROM brands WHERE is_personal = true;
-      DELETE FROM brands WHERE name IN ('Taboo Grow','GIDDI','Cauldron')
+      DELETE FROM brands WHERE name IN ('Taboo Grow','GIDDI','Cauldron','OpenCauldron')
         AND workspace_id = (SELECT id FROM workspaces WHERE slug = 'taboogrow');
       DELETE FROM workspace_members;
       DELETE FROM workspaces WHERE slug = 'taboogrow';
