@@ -1,4 +1,4 @@
-# Contributing to Cauldron
+# Contributing to OpenCauldron
 
 Thanks for your interest in contributing! This guide covers development setup, code style, and how to add new AI model providers.
 
@@ -24,7 +24,7 @@ pnpm run dev
 
 ## Adding a New AI Model Provider
 
-Cauldron has a provider abstraction that makes it straightforward to add new image or video models.
+OpenCauldron has a provider abstraction that makes it straightforward to add new image or video models.
 
 ### 1. Add the model ID
 

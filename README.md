@@ -1,4 +1,4 @@
-# Cauldron
+# OpenCauldron
 
 Open source AI media generation studio. Generate images and videos with 15 AI models from a single, beautiful interface.
 
