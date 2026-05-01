@@ -177,8 +177,8 @@ export function ReviewModal({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="h-[92vh] w-[min(96vw,1100px)] overflow-hidden p-0 sm:max-w-[1100px]">
-        <div className="grid h-full grid-cols-1 md:grid-cols-[minmax(0,1fr)_360px]">
+      <DialogContent className="grid h-[92vh] w-[min(96vw,1100px)] grid-rows-[1fr] gap-0 overflow-hidden p-0 sm:max-w-[1100px]">
+        <div className="grid h-full min-h-0 grid-cols-1 md:grid-cols-[minmax(0,1fr)_360px]">
           <div className="flex min-h-0 flex-col bg-black/95">
             {/* Image area — `min-h-0` lets the flex-1 child actually shrink
                 below its content's intrinsic size so the filmstrip rail
@@ -242,7 +242,7 @@ export function ReviewModal({
             )}
           </div>
 
-          <div className="flex max-h-[88vh] flex-col border-l border-border/60">
+          <div className="flex min-h-0 flex-col border-l border-border/60">
             <div className="border-b border-border/60 p-4">
               <DialogTitle className="text-base font-semibold">
                 Review {index + 1} of {stripItems.length}
