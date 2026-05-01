@@ -94,8 +94,17 @@ export function ReviewFilmstrip({
       `[data-slot="filmstrip-tile"][data-index="${activeIndex}"]`
     );
     if (!tile) return;
-    const tileCenter = tile.offsetLeft + tile.offsetWidth / 2;
-    const target = tileCenter - viewport.clientWidth / 2;
+    // Use getBoundingClientRect rather than offsetLeft so the math is
+    // independent of DOM nesting — the tile button's offsetParent is its
+    // wrapper div (added so the active-tile notch can sit outside the
+    // button's overflow-hidden region), so `tile.offsetLeft` would always
+    // resolve to ~0 and the scroll target would never re-center.
+    const tileRect = tile.getBoundingClientRect();
+    const viewportRect = viewport.getBoundingClientRect();
+    const delta =
+      tileRect.left + tileRect.width / 2 -
+      (viewportRect.left + viewportRect.width / 2);
+    const target = viewport.scrollLeft + delta;
     const prefersReducedMotion =
       typeof window !== "undefined" &&
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
