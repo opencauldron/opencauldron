@@ -4,6 +4,11 @@ import * as React from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { type ReviewQueueItem } from "@/components/review-modal";
 
@@ -114,14 +119,12 @@ export function ReviewFilmstrip({
       <ScrollArea className="h-full w-full">
         <div
           className={cn(
-            "flex h-full min-w-full items-center gap-2 px-4 py-2",
-            // Center the row when the queue is short enough that the rail
-            // isn't filled — avoids a forlorn left-aligned cluster. The
-            // `min-w-full` on the row + `justify-center` on a flex row that
-            // never overflows keeps short queues centered; longer queues
-            // scroll naturally because the row's natural width exceeds the
-            // viewport.
-            "justify-center"
+            // Content-width row centered via `mx-auto` when narrower than the
+            // viewport; when wider, mx-auto resolves to 0 and the ScrollArea
+            // viewport scrolls naturally. Using `min-w-full` + `justify-center`
+            // (the previous shape) caused the leftmost tiles to fall into
+            // negative-overflow territory once the row overflowed.
+            "mx-auto flex h-full w-fit items-center gap-2 px-4 py-2"
           )}
           style={{ scrollSnapType: "x mandatory" }}
         >
@@ -173,71 +176,95 @@ function FilmstripTileImpl({
   // always lands. See plan.md § "Skip-decisioned navigation".
   const handleClick = () => onActivate(index);
 
+  // Wrapper hosts the active-tile notch as a SIBLING of the button so the
+  // button's `overflow-hidden` (needed to clip the thumbnail to rounded-md)
+  // doesn't crop the notch. ScrollSnap also lives on the wrapper so the
+  // outer flex item is the snap target.
+  const promptPreview = item.prompt.length > 80
+    ? `${item.prompt.slice(0, 77).trimEnd()}...`
+    : item.prompt;
+
   return (
-    <button
-      type="button"
-      onClick={handleClick}
-      tabIndex={tabIndex}
-      data-slot="filmstrip-tile"
-      data-index={index}
-      data-active={isActive ? "true" : undefined}
-      data-decision={decision ?? undefined}
-      aria-label={`Review item ${index + 1}${
-        decision ? ` (${decision})` : ""
-      }`}
-      aria-current={isActive ? "true" : undefined}
-      className={cn(
-        "group/filmstrip-tile relative shrink-0 overflow-hidden rounded-md bg-muted",
-        "h-[52px] w-[52px] md:h-16 md:w-16",
-        "ring-1 ring-foreground/10",
-        "transition-[transform,box-shadow,opacity] duration-150 ease-out",
-        "hover:ring-primary/40",
-        "active:translate-y-px",
-        "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/60",
-        "motion-reduce:transition-none motion-reduce:active:translate-y-0",
-        // Active state — overrides the resting ring.
-        isActive && "ring-2 ring-primary",
-        // Decisioned state — dim the whole tile so the marker reads.
-        decision && "opacity-50"
-      )}
-      style={{ scrollSnapAlign: "center" }}
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={item.thumbnailUrl}
-        alt=""
-        className="h-full w-full object-cover"
-        loading="lazy"
-        decoding="async"
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <div
+            className="relative shrink-0"
+            style={{ scrollSnapAlign: "center" }}
+          >
+            {isActive && (
+              // Notch sits just above the tile but INSIDE the rail's vertical
+              // bounds — the ScrollArea viewport's overflow-hidden would clip
+              // anything outside the rail. Plan called for `-top-2` (8px); the
+              // rail's `items-center` only leaves ~6px above each tile, so we
+              // use `-top-1` (4px) to stay in-bounds.
+              <span
+                aria-hidden
+                className="pointer-events-none absolute -top-1 left-1/2 z-10 h-0.5 w-6 -translate-x-1/2 rounded-full bg-primary"
+              />
+            )}
+            <button
+              type="button"
+              onClick={handleClick}
+              tabIndex={tabIndex}
+              data-slot="filmstrip-tile"
+              data-index={index}
+              data-active={isActive ? "true" : undefined}
+              data-decision={decision ?? undefined}
+              aria-label={`Item ${index + 1}${
+                decision ? `, ${decision}` : ""
+              }`}
+              aria-current={isActive ? "true" : undefined}
+              className={cn(
+                "group/filmstrip-tile relative block overflow-hidden rounded-md bg-muted",
+                "h-[52px] w-[52px] md:h-16 md:w-16",
+                "ring-1 ring-foreground/10",
+                "transition-[transform,box-shadow,opacity] duration-150 ease-out",
+                "hover:ring-primary/40",
+                "active:translate-y-px",
+                "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/60",
+                "motion-reduce:transition-none motion-reduce:active:translate-y-0",
+                // Active state — overrides the resting ring.
+                isActive && "ring-2 ring-primary",
+                // Decisioned state — dim the whole tile so the marker reads.
+                decision && "opacity-50"
+              )}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={item.thumbnailUrl}
+                alt=""
+                className="h-full w-full object-cover"
+                loading="lazy"
+                decoding="async"
+              />
+
+              {/* Decision marker — top-right circle. Matches the modal's
+                  emerald/rose recipe. ring-1 locks contrast on
+                  near-black thumbnails where the 85% backdrop fuses with
+                  the dimmed image. */}
+              {decision === "approved" && (
+                <span
+                  className="absolute right-1 top-1 inline-flex size-4 items-center justify-center rounded-full bg-background/90 ring-1 ring-foreground/15 backdrop-blur-sm"
+                  aria-hidden
+                >
+                  <CheckCircle2 className="size-3 text-emerald-500" />
+                </span>
+              )}
+              {decision === "rejected" && (
+                <span
+                  className="absolute right-1 top-1 inline-flex size-4 items-center justify-center rounded-full bg-background/90 ring-1 ring-foreground/15 backdrop-blur-sm"
+                  aria-hidden
+                >
+                  <XCircle className="size-3 text-rose-500" />
+                </span>
+              )}
+            </button>
+          </div>
+        }
       />
-
-      {/* Decision marker — top-right circle. Matches the modal's emerald/rose
-          recipe (review-modal.tsx:7-11, 256-275). */}
-      {decision === "approved" && (
-        <span
-          className="absolute right-1 top-1 inline-flex size-4 items-center justify-center rounded-full bg-background/85 backdrop-blur-sm"
-          aria-hidden
-        >
-          <CheckCircle2 className="size-3 text-emerald-500" />
-        </span>
-      )}
-      {decision === "rejected" && (
-        <span
-          className="absolute right-1 top-1 inline-flex size-4 items-center justify-center rounded-full bg-background/85 backdrop-blur-sm"
-          aria-hidden
-        >
-          <XCircle className="size-3 text-rose-500" />
-        </span>
-      )}
-
-      {/* Active-tile notch — primary-colored, centered above the tile. */}
-      {isActive && (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -top-2 left-1/2 h-0.5 w-6 -translate-x-1/2 rounded-full bg-primary"
-        />
-      )}
-    </button>
+      <TooltipContent>{promptPreview}</TooltipContent>
+    </Tooltip>
   );
 }
 
