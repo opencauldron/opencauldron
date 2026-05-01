@@ -130,6 +130,13 @@ export async function GET(req: NextRequest) {
       duration: assets.duration,
       hasAudio: assets.hasAudio,
       createdAt: assets.createdAt,
+      // PR `feat/webp-image-delivery-backend` additions — Gallery hydration
+      // mirrors Library so the shared download component reads the same
+      // shape from both surfaces.
+      webpR2Key: assets.webpR2Key,
+      webpFileSize: assets.webpFileSize,
+      webpStatus: assets.webpStatus,
+      originalMimeType: assets.originalMimeType,
       brandName: brands.name,
       brandColor: brands.color,
       brandIsPersonal: brands.isPersonal,
@@ -183,10 +190,14 @@ export async function GET(req: NextRequest) {
 
   const assetResults = await Promise.all(
     assetRows.map(async (a) => {
-      const url = await getAssetUrl(a.r2Key);
-      const thumbnailUrl = a.thumbnailR2Key
-        ? await getAssetUrl(a.thumbnailR2Key)
-        : null;
+      // Resolve url, thumbnail, and webp variant URLs in parallel — saves a
+      // round-trip per asset when the row has all three keys (typical post-
+      // backfill).
+      const [url, thumbnailUrl, webpUrl] = await Promise.all([
+        getAssetUrl(a.r2Key),
+        a.thumbnailR2Key ? getAssetUrl(a.thumbnailR2Key) : Promise.resolve(null),
+        a.webpR2Key ? getAssetUrl(a.webpR2Key) : Promise.resolve(null),
+      ]);
 
       const brand = a.brandId
         ? {
@@ -230,6 +241,15 @@ export async function GET(req: NextRequest) {
         duration: a.duration,
         hasAudio: a.hasAudio,
         createdAt: a.createdAt,
+        // PR `feat/webp-image-delivery-backend` — surface for PR 2 frontend.
+        // `originalFileSize` is the same value as `fileSize`, named explicitly
+        // so the dual-format download menu reads symmetrically with
+        // `webpFileSize`. `webpStatus` controls the silent-fallback decision.
+        webpUrl,
+        webpFileSize: a.webpFileSize,
+        webpStatus: a.webpStatus,
+        originalMimeType: a.originalMimeType,
+        originalFileSize: a.fileSize,
         brand,
         // Legacy multi-brand shape; until 0010 ships every asset still has one
         // single canonical brand. Kept so older clients keep rendering.

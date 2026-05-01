@@ -17,6 +17,20 @@ export const CHANGELOG: ChangelogEntry[] = [
   },
   {
     date: "2026-04-30",
+<<<<<<< HEAD
+=======
+    title: "Faster image previews + pick your download size",
+    bullets: [
+      "Library and Gallery full-size previews now load a compressed WebP version — typically 90%+ smaller than the original, way faster on slow connections",
+      "Download button is now a split button: one tap grabs the smaller WebP for sharing, or open the menu to pick the original at full quality",
+      "File sizes are shown right in the menu so you know what you're getting",
+      "Mobile gets a single full-width download button that always opens the menu — easier to tap",
+      "Originals are never modified — the WebP is purely additive and silently falls back to the original if anything goes wrong",
+    ],
+  },
+  {
+    date: "2026-04-30",
+>>>>>>> origin/main
     title: "Self-hosted Docker distribution",
     bullets: [
       "Self-host OpenCauldron with Docker — docker compose up -d and you're running",
