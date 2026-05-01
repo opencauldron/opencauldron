@@ -54,6 +54,11 @@ export async function GET(
       fileSize: assets.fileSize,
       costEstimate: assets.costEstimate,
       createdAt: assets.createdAt,
+      // PR `feat/webp-image-delivery-backend` additions.
+      webpR2Key: assets.webpR2Key,
+      webpFileSize: assets.webpFileSize,
+      webpStatus: assets.webpStatus,
+      originalMimeType: assets.originalMimeType,
       brandWorkspaceId: brands.workspaceId,
       brandName: brands.name,
       brandColor: brands.color,
@@ -90,11 +95,12 @@ export async function GET(
     .from(assetTags)
     .where(eq(assetTags.assetId, id));
 
-  // Build URL
-  const url = await getAssetUrl(asset.r2Key);
-  const thumbnailUrl = asset.thumbnailR2Key
-    ? await getAssetUrl(asset.thumbnailR2Key)
-    : null;
+  // Build URLs in parallel — saves an R2 round-trip per asset post-backfill.
+  const [url, thumbnailUrl, webpUrl] = await Promise.all([
+    getAssetUrl(asset.r2Key),
+    asset.thumbnailR2Key ? getAssetUrl(asset.thumbnailR2Key) : Promise.resolve(null),
+    asset.webpR2Key ? getAssetUrl(asset.webpR2Key) : Promise.resolve(null),
+  ]);
 
   const brand = asset.brandId
     ? {
@@ -137,6 +143,12 @@ export async function GET(
       fileSize: asset.fileSize,
       costEstimate: asset.costEstimate,
       createdAt: asset.createdAt,
+      // PR `feat/webp-image-delivery-backend` — same shape as Library.
+      webpUrl,
+      webpFileSize: asset.webpFileSize,
+      webpStatus: asset.webpStatus,
+      originalMimeType: asset.originalMimeType,
+      originalFileSize: asset.fileSize,
       brand,
       brands: brand ? [brand] : [],
       tags: assetTagRows.map((t) => t.tag),
@@ -250,6 +262,7 @@ export async function DELETE(
       status: assets.status,
       r2Key: assets.r2Key,
       thumbnailR2Key: assets.thumbnailR2Key,
+      webpR2Key: assets.webpR2Key,
     })
     .from(assets)
     .where(eq(assets.id, id))
@@ -269,6 +282,9 @@ export async function DELETE(
     await deleteFile(asset.r2Key);
     if (asset.thumbnailR2Key) {
       await deleteFile(asset.thumbnailR2Key);
+    }
+    if (asset.webpR2Key) {
+      await deleteFile(asset.webpR2Key);
     }
   } catch (error) {
     // Log but don't fail - asset will be orphaned in storage

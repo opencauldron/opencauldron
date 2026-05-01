@@ -3,7 +3,12 @@ import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { brands, generations, assets, brandMembers, users } from "@/lib/db/schema";
 import { getProvider } from "@/providers/registry";
-import { uploadAsset } from "@/lib/storage";
+import {
+  uploadAsset,
+  uploadFile,
+  encodeDisplayWebp,
+  displayWebpKey,
+} from "@/lib/storage";
 import { getXPReward, awardXP, checkAndAwardBadges } from "@/lib/xp";
 import { references } from "@/lib/db/schema";
 import { eq, and, gte, sql } from "drizzle-orm";
@@ -429,6 +434,47 @@ export async function POST(req: NextRequest) {
     // Upload to R2
     const uploaded = await uploadAsset(result.imageBuffer, userId);
 
+    // WebP display variant (PR `feat/webp-image-delivery-backend`, T011).
+    // Mirrors the upload-route logic: encode in-process, PUT to R2 at
+    // `{originalKey}_display.webp`, fall through to webpStatus='failed' on
+    // any error so the asset row still saves and the original is served.
+    // `uploadAsset()` always writes PNGs (image/png) for now, so we can pass
+    // the constant mime type.
+    const generatedMimeType = "image/png";
+    let genWebpR2Key: string | null = null;
+    let genWebpFileSize: number | null = null;
+    let genWebpStatus: "ready" | "failed" | null = null;
+    let genWebpFailedReason: string | null = null;
+
+    const encoded = await encodeDisplayWebp(
+      result.imageBuffer,
+      generatedMimeType
+    );
+    if (encoded.ok) {
+      const webpKey = displayWebpKey(uploaded.key);
+      try {
+        await uploadFile(encoded.buffer, webpKey, "image/webp");
+        genWebpR2Key = webpKey;
+        genWebpFileSize = encoded.size;
+        genWebpStatus = "ready";
+      } catch (err) {
+        genWebpStatus = "failed";
+        genWebpFailedReason =
+          err instanceof Error ? `r2_put: ${err.message}` : "r2_put: unknown";
+        console.error(
+          "[generate] WebP variant R2 PUT failed (asset still saved):",
+          { key: uploaded.key, reason: genWebpFailedReason }
+        );
+      }
+    } else {
+      genWebpStatus = "failed";
+      genWebpFailedReason = encoded.reason;
+      console.error(
+        "[generate] WebP encoder failed (asset still saved):",
+        { key: uploaded.key, reason: encoded.reason }
+      );
+    }
+
     // Create asset record. brandId is set; status defaults to draft (FR-010);
     // source = generation; brandKitOverridden tracks whether the kit was
     // skipped (FR-016). Mutation guard at the DB level lives in transitions.ts.
@@ -454,6 +500,13 @@ export async function POST(req: NextRequest) {
         r2Key: uploaded.key,
         r2Url: uploaded.url,
         thumbnailR2Key: uploaded.thumbnailKey,
+        // WebP display variant fields (FR-005). Always set on image
+        // generations; never null here because we always run the encoder.
+        webpR2Key: genWebpR2Key,
+        webpFileSize: genWebpFileSize,
+        webpStatus: genWebpStatus,
+        webpFailedReason: genWebpFailedReason,
+        originalMimeType: generatedMimeType,
         width: uploaded.width,
         height: uploaded.height,
         fileSize: uploaded.fileSize,

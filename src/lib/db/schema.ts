@@ -294,6 +294,23 @@ export const assets = pgTable(
     r2Key: text("r2_key").notNull(),
     r2Url: text("r2_url").notNull(),
     thumbnailR2Key: text("thumbnail_r2_key"),
+    // WebP display variant (migration 0018). Encoded write-time alongside the
+    // 400px thumbnail; consumed by the Library detail panel + Gallery lightbox
+    // and as the primary download. Null on video assets and on legacy rows
+    // until the backfill catches them. `webpStatus = 'failed'` means the
+    // encoder threw for a recoverable reason; the original is still served.
+    // Pattern matches the rest of this schema — text + Drizzle enum, not a
+    // Postgres ENUM type (consistent with `status`, `source`, etc.).
+    webpR2Key: text("webp_r2_key"),
+    webpFileSize: integer("webp_file_size"),
+    webpStatus: text("webp_status", {
+      enum: ["pending", "ready", "failed"],
+    }),
+    webpFailedReason: text("webp_failed_reason"),
+    // Original mime-type lifted onto the asset row so the dual-format download
+    // UI in PR 2 can label "Original (PNG) · 14 MB" without joining `uploads`
+    // (which doesn't exist for `source = 'generated'` rows anyway).
+    originalMimeType: text("original_mime_type"),
     // Library/DAM additions (migration 0016).
     // Original upload filename — uploads now retain this; generations may set
     // a synthesized name. Nullable for legacy rows.
