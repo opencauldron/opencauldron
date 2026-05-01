@@ -18,6 +18,14 @@ export const CHANGELOG: ChangelogEntry[] = [
     ],
   },
   {
+    date: "2026-05-01",
+    title: "Downloads work again",
+    bullets: [
+      "Fixed Download in the Gallery and Library failing with a silent error on hosts where the storage bucket isn't CORS-configured",
+      "Files now stream through the app, so the browser always treats them as a download (with the right filename) instead of opening them in a new tab",
+    ],
+  },
+  {
     date: "2026-04-30",
     title: "Review queue opens into a gallery",
     bullets: [

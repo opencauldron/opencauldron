@@ -39,6 +39,15 @@ export async function getAssetUrl(key: string): Promise<string> {
 }
 
 /**
+ * Stream an asset's bytes from storage. Used by the download proxy route so
+ * the client never has to fetch cross-origin (which would require CORS on
+ * the bucket and wouldn't honor `Content-Disposition` either way).
+ */
+export async function getAssetObject(key: string) {
+  return getBackend().getObject(key);
+}
+
+/**
  * Delete an asset from storage.
  */
 export async function deleteFile(key: string): Promise<void> {

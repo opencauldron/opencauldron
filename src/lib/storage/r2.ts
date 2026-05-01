@@ -6,6 +6,7 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { StorageBackend } from "./types";
+import { Readable } from "stream";
 
 const r2 = new S3Client({
   region: "auto",
@@ -44,6 +45,25 @@ export const r2Backend: StorageBackend = {
       new GetObjectCommand({ Bucket: BUCKET, Key: key }),
       { expiresIn: 3600 }
     );
+  },
+
+  async getObject(key) {
+    const res = await r2.send(
+      new GetObjectCommand({ Bucket: BUCKET, Key: key })
+    );
+    if (!res.Body) {
+      throw new Error(`R2 object missing body: ${key}`);
+    }
+    // The AWS SDK returns the body as a Node Readable in Node runtimes.
+    // Convert to a Web ReadableStream so the route handler can return it
+    // directly via NextResponse.
+    const nodeStream = res.Body as Readable;
+    const webStream = Readable.toWeb(nodeStream) as unknown as ReadableStream<Uint8Array>;
+    return {
+      body: webStream,
+      contentType: res.ContentType ?? null,
+      contentLength: res.ContentLength ?? null,
+    };
   },
 
   async delete(key) {
