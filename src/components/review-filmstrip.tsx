@@ -76,9 +76,12 @@ export function ReviewFilmstrip({
     );
   }, []);
 
-  // T011 — auto-scroll the active tile to center on activeIndex change.
-  // Reduced-motion handling is added in T015 (Phase 4); for now always smooth.
-  // Effect deps are [activeIndex] only (primitive, per `rerender-dependencies`).
+  // T011 + T015 — auto-scroll the active tile to center on activeIndex change.
+  // Honors `prefers-reduced-motion: reduce` per US2: smooth when no preference,
+  // instant ("auto") when reduce. Effect deps are [activeIndex] only
+  // (primitive, per `rerender-dependencies`); the matchMedia read is a
+  // per-fire query so the user toggling motion-reduce takes effect on the
+  // next nav without a re-mount.
   React.useEffect(() => {
     const viewport = viewportRef.current;
     if (!viewport) return;
@@ -88,9 +91,12 @@ export function ReviewFilmstrip({
     if (!tile) return;
     const tileCenter = tile.offsetLeft + tile.offsetWidth / 2;
     const target = tileCenter - viewport.clientWidth / 2;
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     viewport.scrollTo({
       left: Math.max(0, target),
-      behavior: "smooth",
+      behavior: prefersReducedMotion ? "auto" : "smooth",
     });
   }, [activeIndex]);
 
