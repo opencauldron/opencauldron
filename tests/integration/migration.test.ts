@@ -109,7 +109,7 @@ describe.skipIf(!enabled)("agency-DAM migration", () => {
 
     const brandsCount = await pool.query<{ name: string; cnt: string }>(
       `SELECT name, COUNT(*) AS cnt FROM brands
-        WHERE workspace_id = $1 AND name IN ('Taboo Grow','GIDDI','Cauldron')
+        WHERE workspace_id = $1 AND name IN ('Taboo Grow','GIDDI','OpenCauldron')
         GROUP BY name`,
       [ws.rows[0].id]
     );

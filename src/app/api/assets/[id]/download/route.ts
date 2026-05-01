@@ -91,12 +91,12 @@ export async function GET(
       return NextResponse.json({ error: "WebP not available" }, { status: 404 });
     }
     key = asset.webpR2Key;
-    filename = `cauldron-${id8}.webp`;
+    filename = `opencauldron-${id8}.webp`;
   } else {
     key = asset.r2Key;
     const fallbackMime = asset.mediaType === "video" ? "video/mp4" : null;
     const ext = extensionFor(asset.originalMimeType ?? fallbackMime);
-    filename = `cauldron-${id8}-original.${ext}`;
+    filename = `opencauldron-${id8}-original.${ext}`;
   }
 
   let object;

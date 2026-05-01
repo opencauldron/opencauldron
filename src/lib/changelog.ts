@@ -7,6 +7,16 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-05-01",
+    title: "Now called OpenCauldron",
+    bullets: [
+      "The studio is officially OpenCauldron — the styleguide, sidebar branding, and downloaded filenames all carry the new name",
+      "Saved files now download as opencauldron-{id}.webp / opencauldron-{id}-original.{ext} (was cauldron-…)",
+      "The seed brand previously named \"Cauldron\" is renamed to \"OpenCauldron\" in place — same brand, new label, no asset moves",
+      "Self-host setup wizard defaults the R2 bucket to opencauldron",
+    ],
+  },
+  {
+    date: "2026-05-01",
     title: "Filmstrip in the review modal",
     bullets: [
       "Inside the review modal, a horizontal filmstrip rail at the bottom now shows what's coming next and what just passed — no more guessing where you are in the queue",

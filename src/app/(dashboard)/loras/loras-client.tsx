@@ -173,11 +173,11 @@ export function LorasClient() {
   useEffect(() => {
     if (!nsfwHydrated.current) {
       nsfwHydrated.current = true;
-      const stored = localStorage.getItem("cauldron-nsfw-loras");
+      const stored = localStorage.getItem("opencauldron-nsfw-loras");
       if (stored === "true") setNsfwEnabled(true);
       return;
     }
-    localStorage.setItem("cauldron-nsfw-loras", String(nsfwEnabled));
+    localStorage.setItem("opencauldron-nsfw-loras", String(nsfwEnabled));
   }, [nsfwEnabled]);
 
   // Reset results when source changes

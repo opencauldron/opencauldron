@@ -23,8 +23,8 @@
  * conditional class structure below.
  *
  * Telemetry: every successful download fires `asset_downloaded` via
- * `trackEvent` (FR-011). Filenames follow `cauldron-{id8}.webp` for WebP and
- * `cauldron-{id8}-original.{ext}` for originals (FR-010).
+ * `trackEvent` (FR-011). Filenames follow `opencauldron-{id8}.webp` for WebP and
+ * `opencauldron-{id8}-original.{ext}` for originals (FR-010).
  */
 
 import * as React from "react";
@@ -110,7 +110,7 @@ function extensionFor(mimeType: string | null): string {
   return slash >= 0 ? lower.slice(slash + 1).split(/[+;]/)[0] : "bin";
 }
 
-/** First 8 chars of the asset id — matches the `cauldron-{id8}` filename scheme. */
+/** First 8 chars of the asset id — matches the `opencauldron-{id8}` filename scheme. */
 function id8(id: string): string {
   return id.slice(0, 8);
 }
@@ -164,7 +164,7 @@ export function AssetDownloadButton({
     if (!asset.webpUrl || !asset.webpFileSize) return;
     triggerDownload(
       downloadUrlFor(asset.id, "webp"),
-      `cauldron-${id8(asset.id)}.webp`
+      `opencauldron-${id8(asset.id)}.webp`
     );
     trackEvent("asset_downloaded", {
       format: "webp",
@@ -177,7 +177,7 @@ export function AssetDownloadButton({
   const handleDownloadOriginal = React.useCallback(() => {
     triggerDownload(
       downloadUrlFor(asset.id, "original"),
-      `cauldron-${id8(asset.id)}-original.${originalExt}`
+      `opencauldron-${id8(asset.id)}-original.${originalExt}`
     );
     trackEvent("asset_downloaded", {
       format: "original",
