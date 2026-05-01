@@ -1226,7 +1226,6 @@ export function GalleryClient({ lockedBrandId }: GalleryClientProps = {}) {
                   webpUrl: selectedAsset.webpUrl,
                   webpFileSize: selectedAsset.webpFileSize,
                   webpStatus: selectedAsset.webpStatus,
-                  originalUrl: selectedAsset.url,
                   originalFileSize: selectedAsset.originalFileSize ?? selectedAsset.fileSize ?? 0,
                   originalMimeType: selectedAsset.originalMimeType,
                   kind: selectedAsset.mediaType === "video" ? "video" : "image",

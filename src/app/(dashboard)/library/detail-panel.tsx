@@ -284,7 +284,6 @@ function DetailPanelBody({
               webpUrl: asset.webpUrl,
               webpFileSize: asset.webpFileSize,
               webpStatus: asset.webpStatus,
-              originalUrl: asset.url,
               originalFileSize: asset.originalFileSize ?? asset.fileSize ?? 0,
               originalMimeType: asset.originalMimeType,
               kind: asset.mediaType,

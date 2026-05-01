@@ -12,9 +12,9 @@
  *                          mobile: single full-width trigger that ALWAYS opens
  *                          the menu (no separate primary action) — WCAG 2.5.5
  *                          AAA target size.
- *   pending (image)     → same split layout but primary is disabled with a
- *                          spinner; chevron still works so users can grab the
- *                          original immediately.
+ *   pending (image)     → same split layout but the WebP primary is disabled
+ *                          with a spinner; chevron still works so users can
+ *                          grab the original immediately.
  *   failed | null       → single original-only button. No menu. The WebP
  *   OR kind=video         encode failure is invisible to the user.
  *
@@ -55,7 +55,6 @@ export interface DownloadableAsset {
   webpUrl: string | null;
   webpFileSize: number | null;
   webpStatus: "pending" | "ready" | "failed" | null;
-  originalUrl: string;
   originalFileSize: number;
   originalMimeType: string | null;
   kind: "image" | "video";
@@ -117,33 +116,26 @@ function id8(id: string): string {
 }
 
 /**
- * Cross-origin-safe download via fetch + blob + synthetic anchor click.
+ * Trigger a download via a synthetic anchor click on a same-origin URL.
  *
- * The simpler `<a href={url} download={name}>` pattern works only when the
- * URL is same-origin OR the server sends `Content-Disposition: attachment`.
- * R2-signed URLs are cross-origin and don't always set that header, so the
- * browser ignores `download` and navigates instead. Round-tripping through a
- * Blob sidesteps this and guarantees the filename is honored.
+ * We always point at `/api/assets/[id]/download?variant=...` (the proxy
+ * route), which streams the bytes back with `Content-Disposition: attachment`
+ * and a sensible filename. Going through the proxy avoids cross-origin fetch
+ * (no R2 CORS rules required) and guarantees the browser actually downloads
+ * the file instead of navigating into it.
  */
-async function downloadAs(url: string, filename: string): Promise<void> {
-  const res = await fetch(url, { credentials: "omit" });
-  if (!res.ok) {
-    throw new Error(`Download failed (${res.status})`);
-  }
-  const blob = await res.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  try {
-    const a = document.createElement("a");
-    a.href = objectUrl;
-    a.download = filename;
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  } finally {
-    // Defer revoke a tick so the click handler has time to start the download.
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-  }
+function triggerDownload(url: string, filename: string): void {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function downloadUrlFor(assetId: string, variant: "webp" | "original"): string {
+  return `/api/assets/${assetId}/download?variant=${variant}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -156,8 +148,6 @@ export function AssetDownloadButton({
   variant = "default",
   className,
 }: AssetDownloadButtonProps) {
-  const [busy, setBusy] = React.useState<"webp" | "original" | null>(null);
-
   const isVideo = asset.kind === "video";
   const webpReady = asset.webpStatus === "ready" && !!asset.webpUrl && !!asset.webpFileSize;
   const webpPending = asset.webpStatus === "pending" && !isVideo;
@@ -170,45 +160,32 @@ export function AssetDownloadButton({
 
   // Stable callbacks — `useCallback` so the menu items don't re-render
   // gratuitously when the parent renders.
-  const handleDownloadWebp = React.useCallback(async () => {
+  const handleDownloadWebp = React.useCallback(() => {
     if (!asset.webpUrl || !asset.webpFileSize) return;
-    setBusy("webp");
-    try {
-      await downloadAs(asset.webpUrl, `cauldron-${id8(asset.id)}.webp`);
-      trackEvent("asset_downloaded", {
-        format: "webp",
-        sizeBytes: asset.webpFileSize,
-        source,
-        assetId: asset.id,
-      });
-    } catch (err) {
-      // Surface as a console error; UX-level toast is the caller's choice.
-      // (Library/Gallery already use sonner globally — they can wrap if needed.)
-      console.error("WebP download failed", err);
-    } finally {
-      setBusy(null);
-    }
+    triggerDownload(
+      downloadUrlFor(asset.id, "webp"),
+      `cauldron-${id8(asset.id)}.webp`
+    );
+    trackEvent("asset_downloaded", {
+      format: "webp",
+      sizeBytes: asset.webpFileSize,
+      source,
+      assetId: asset.id,
+    });
   }, [asset.id, asset.webpUrl, asset.webpFileSize, source]);
 
-  const handleDownloadOriginal = React.useCallback(async () => {
-    setBusy("original");
-    try {
-      await downloadAs(
-        asset.originalUrl,
-        `cauldron-${id8(asset.id)}-original.${originalExt}`
-      );
-      trackEvent("asset_downloaded", {
-        format: "original",
-        sizeBytes: asset.originalFileSize,
-        source,
-        assetId: asset.id,
-      });
-    } catch (err) {
-      console.error("Original download failed", err);
-    } finally {
-      setBusy(null);
-    }
-  }, [asset.id, asset.originalUrl, asset.originalFileSize, originalExt, source]);
+  const handleDownloadOriginal = React.useCallback(() => {
+    triggerDownload(
+      downloadUrlFor(asset.id, "original"),
+      `cauldron-${id8(asset.id)}-original.${originalExt}`
+    );
+    trackEvent("asset_downloaded", {
+      format: "original",
+      sizeBytes: asset.originalFileSize,
+      source,
+      assetId: asset.id,
+    });
+  }, [asset.id, asset.originalFileSize, originalExt, source]);
 
   // -------------------------------------------------------------------------
   // Render mode 3: single button (failed | null | video)
@@ -219,7 +196,6 @@ export function AssetDownloadButton({
         variant={variant}
         size="default"
         onClick={handleDownloadOriginal}
-        disabled={busy === "original"}
         className={cn(
           // Touch target ≥44px on coarse pointers / mobile (WCAG 2.5.5 AAA).
           "min-h-11 md:min-h-0 w-full md:w-auto",
@@ -227,11 +203,7 @@ export function AssetDownloadButton({
         )}
         aria-label={`Download ${formatBytes(asset.originalFileSize)}`}
       >
-        {busy === "original" ? (
-          <Loader2 className="animate-spin" />
-        ) : (
-          <Download />
-        )}
+        <Download />
         <span>Download · {originalSizeLabel}</span>
       </Button>
     );
@@ -245,7 +217,7 @@ export function AssetDownloadButton({
     <DropdownMenuContent align="end" sideOffset={6} className="min-w-[260px]">
       <DropdownMenuItem
         onClick={handleDownloadWebp}
-        disabled={!webpReady || busy !== null}
+        disabled={!webpReady}
       >
         <Download />
         <div className="flex min-w-0 flex-1 flex-col">
@@ -257,10 +229,7 @@ export function AssetDownloadButton({
           </span>
         </div>
       </DropdownMenuItem>
-      <DropdownMenuItem
-        onClick={handleDownloadOriginal}
-        disabled={busy !== null}
-      >
+      <DropdownMenuItem onClick={handleDownloadOriginal}>
         <Download />
         <div className="flex min-w-0 flex-1 flex-col">
           <span className="text-sm">
@@ -293,7 +262,7 @@ export function AssetDownloadButton({
             variant={variant}
             size="default"
             onClick={handleDownloadWebp}
-            disabled={!webpReady || busy !== null}
+            disabled={!webpReady}
             className="rounded-r-none border-r-0"
             aria-label={
               webpPending
@@ -301,7 +270,7 @@ export function AssetDownloadButton({
                 : `Download WebP ${webpSizeLabel}`
             }
           >
-            {busy === "webp" || webpPending ? (
+            {webpPending ? (
               <Loader2 className="animate-spin" />
             ) : (
               <Download />
@@ -318,7 +287,6 @@ export function AssetDownloadButton({
                   aria-label="Download options"
                 />
               }
-              disabled={busy !== null}
             >
               <ChevronDown />
             </DropdownMenuTrigger>
@@ -349,9 +317,8 @@ export function AssetDownloadButton({
                 aria-label="Download options"
               />
             }
-            disabled={busy !== null}
           >
-            {busy ? <Loader2 className="animate-spin" /> : <Download />}
+            {webpPending ? <Loader2 className="animate-spin" /> : <Download />}
             <span>
               Download ·{" "}
               {webpReady ? webpSizeLabel : webpPending ? "preparing…" : originalSizeLabel}
