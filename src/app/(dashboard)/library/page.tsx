@@ -78,6 +78,10 @@ export default async function LibraryPage() {
       creatorName: users.name,
       creatorImage: users.image,
       creatorEmail: users.email,
+      webpR2Key: assets.webpR2Key,
+      webpFileSize: assets.webpFileSize,
+      webpStatus: assets.webpStatus,
+      originalMimeType: assets.originalMimeType,
       totalCount: sql<number>`COUNT(*) OVER()`.as("total_count"),
     })
     .from(assets)
@@ -130,10 +134,14 @@ export default async function LibraryPage() {
   // Resolve thumbnail + full URLs once.
   const initialItems: LibraryAsset[] = await Promise.all(
     trimmed.map(async (r) => {
-      const url = await getAssetUrl(r.r2Key);
-      const thumbnailUrl = r.thumbnailR2Key
-        ? await getAssetUrl(r.thumbnailR2Key)
-        : url;
+      // Resolve all storage URLs in parallel — saves a round-trip when both
+      // thumbnail and webp keys are present. Matches the pattern in the API
+      // hydrator (`hydrateLibraryItem` in `src/app/api/library/lib.ts`).
+      const [url, thumbnailUrl, webpUrl] = await Promise.all([
+        getAssetUrl(r.r2Key),
+        r.thumbnailR2Key ? getAssetUrl(r.thumbnailR2Key) : Promise.resolve(null),
+        r.webpR2Key ? getAssetUrl(r.webpR2Key) : Promise.resolve(null),
+      ]);
       return {
         id: r.id,
         userId: r.userId,
@@ -141,7 +149,7 @@ export default async function LibraryPage() {
         source: r.source,
         mediaType: r.mediaType,
         url,
-        thumbnailUrl,
+        thumbnailUrl: thumbnailUrl ?? url,
         fileName: r.fileName,
         fileSize: r.fileSize,
         width: r.width,
@@ -160,6 +168,11 @@ export default async function LibraryPage() {
         createdAt: r.createdAt.toISOString(),
         tags: tagsById.get(r.id) ?? [],
         campaigns: campaignsById.get(r.id) ?? [],
+        webpUrl,
+        webpFileSize: r.webpFileSize,
+        webpStatus: r.webpStatus,
+        originalMimeType: r.originalMimeType,
+        originalFileSize: r.fileSize,
       };
     })
   );

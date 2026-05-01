@@ -88,6 +88,18 @@ export interface LibraryAsset {
   createdAt: string;
   tags: string[];
   campaigns: string[];
+  // WebP display variant + dual-format download fields. Hydrated by the
+  // Library API (`src/app/api/library/lib.ts`) for every item; null when the
+  // asset is a video, pre-backfill, or its encoder failed. The detail panel
+  // prefers `webpUrl` for full-size viewing when `webpStatus === 'ready'`
+  // and falls back to `url` otherwise (FR-008, silent fallback).
+  webpUrl: string | null;
+  webpFileSize: number | null;
+  webpStatus: "pending" | "ready" | "failed" | null;
+  originalMimeType: string | null;
+  // Mirror of `fileSize` exposed under an explicit name so the dual-format
+  // download menu reads symmetrically with `webpFileSize`. Same value.
+  originalFileSize: number | null;
 }
 
 interface LibraryClientProps {

@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Download,
   Hash,
   Loader2,
   Pin,
@@ -34,6 +33,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { AssetDownloadButton } from "@/components/library/asset-download-button";
 import { cn } from "@/lib/utils";
 import type { LibraryAsset } from "./library-client";
 
@@ -131,13 +131,6 @@ function DetailPanelBody({
     router.push(`/generate?${params.toString()}`);
   };
 
-  const handleDownload = () => {
-    const a = document.createElement("a");
-    a.href = asset.url;
-    a.download = asset.fileName ?? `library-${asset.id.slice(0, 8)}.png`;
-    a.click();
-  };
-
   const handleDelete = async () => {
     setDeleting(true);
     try {
@@ -169,11 +162,18 @@ function DetailPanelBody({
       <Separator />
 
       <div className="flex flex-col gap-5 px-5 py-5">
-        {/* Preview */}
+        {/* Preview — prefer the smaller WebP rendition when the encoder has
+            produced one (FR-008 / spec US2). Falls back to the original URL
+            silently for pending/failed/null statuses; the user is never told
+            they're seeing the heavier file. */}
         <div className="overflow-hidden rounded-xl bg-muted ring-1 ring-foreground/10">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={asset.url}
+            src={
+              asset.webpStatus === "ready" && asset.webpUrl
+                ? asset.webpUrl
+                : asset.url
+            }
             alt={asset.fileName ?? "Library asset preview"}
             className="block h-auto max-h-[55vh] w-full object-contain"
             loading="eager"
@@ -236,10 +236,24 @@ function DetailPanelBody({
             <Wand2 aria-hidden />
             Use as input
           </Button>
-          <Button variant="outline" onClick={handleDownload} size="icon">
-            <Download aria-hidden />
-            <span className="sr-only">Download</span>
-          </Button>
+          {/* Dual-format download — split button on desktop with WebP +
+              Original choices, single trigger on mobile. Per spec US3 the
+              shared component handles all three render modes (ready /
+              pending / failed-or-video) and PostHog telemetry. */}
+          <AssetDownloadButton
+            asset={{
+              id: asset.id,
+              webpUrl: asset.webpUrl,
+              webpFileSize: asset.webpFileSize,
+              webpStatus: asset.webpStatus,
+              originalUrl: asset.url,
+              originalFileSize: asset.originalFileSize ?? asset.fileSize ?? 0,
+              originalMimeType: asset.originalMimeType,
+              kind: asset.mediaType,
+            }}
+            source="library"
+            variant="outline"
+          />
           <Button
             variant="destructive"
             onClick={() => setConfirmDelete(true)}

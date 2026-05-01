@@ -23,7 +23,6 @@ import {
 } from "@/components/ui/dialog";
 import {
   Search,
-  Download,
   Trash2,
   Calendar,
   X,
@@ -58,6 +57,7 @@ import {
   type UploadedAsset,
 } from "@/components/upload-dropzone";
 import { BrandMark } from "@/components/brand-mark";
+import { AssetDownloadButton } from "@/components/library/asset-download-button";
 
 const PROVIDER_LABELS: Record<string, string> = {
   google: "Gemini",
@@ -117,6 +117,15 @@ interface GalleryAsset {
   brands: AssetBrand[];
   tags: string[];
   user: AssetUser;
+  // webp-image-delivery (PR 1) — hydrated by /api/assets and /api/assets/[id].
+  // `webpUrl` is null until the encoder runs (or for video assets, which never
+  // get a WebP). `originalFileSize` is the same value as `fileSize`, surfaced
+  // explicitly so the dual-format download menu reads symmetrically.
+  webpUrl: string | null;
+  webpFileSize: number | null;
+  webpStatus: "pending" | "ready" | "failed" | null;
+  originalMimeType: string | null;
+  originalFileSize: number | null;
 }
 
 const MODEL_OPTIONS = [
@@ -348,14 +357,6 @@ export function GalleryClient({ lockedBrandId }: GalleryClientProps = {}) {
     } finally {
       setDeleting(false);
     }
-  };
-
-  const handleDownload = (asset: GalleryAsset) => {
-    const a = document.createElement("a");
-    a.href = asset.url;
-    const ext = asset.mediaType === "video" ? "mp4" : "png";
-    a.download = `${asset.model}-${asset.id.slice(0, 8)}.${ext}`;
-    a.click();
   };
 
   const handleAnimate = (asset: GalleryAsset) => {
@@ -618,6 +619,14 @@ export function GalleryClient({ lockedBrandId }: GalleryClientProps = {}) {
         brands: brand ? [brand] : [],
         tags: [],
         user: { name: null, email: null, image: null },
+        // The WebP encode runs on the server during the upload pipeline; the
+        // upload response shape doesn't carry it back yet, so this fresh row
+        // shows the original until the next refetch hydrates the variant.
+        webpUrl: null,
+        webpFileSize: null,
+        webpStatus: null,
+        originalMimeType: null,
+        originalFileSize: uploaded.fileSize,
       };
       setAssets((prev) => [fresh, ...prev]);
     },
@@ -868,9 +877,16 @@ export function GalleryClient({ lockedBrandId }: GalleryClientProps = {}) {
                     className="max-h-full max-w-full object-contain"
                   />
                 ) : (
+                  // Prefer the WebP rendition when ready (FR-008 / US2). The
+                  // fallback to the original is silent — users aren't told the
+                  // WebP failed/wasn't ready, they just see the same image.
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={selectedAsset.url}
+                    src={
+                      selectedAsset.webpStatus === "ready" && selectedAsset.webpUrl
+                        ? selectedAsset.webpUrl
+                        : selectedAsset.url
+                    }
                     alt={selectedAsset.prompt}
                     className="max-h-full max-w-full object-contain"
                   />
@@ -1200,13 +1216,24 @@ export function GalleryClient({ lockedBrandId }: GalleryClientProps = {}) {
                   </Button>
                 </>
               )}
-              <Button
+              {/* Dual-format download (FR-009). For images with a ready WebP
+                  this renders as a desktop split button + mobile menu; for
+                  videos and failed/never-encoded assets it collapses to a
+                  single original-only button — see AssetDownloadButton. */}
+              <AssetDownloadButton
+                asset={{
+                  id: selectedAsset.id,
+                  webpUrl: selectedAsset.webpUrl,
+                  webpFileSize: selectedAsset.webpFileSize,
+                  webpStatus: selectedAsset.webpStatus,
+                  originalUrl: selectedAsset.url,
+                  originalFileSize: selectedAsset.originalFileSize ?? selectedAsset.fileSize ?? 0,
+                  originalMimeType: selectedAsset.originalMimeType,
+                  kind: selectedAsset.mediaType === "video" ? "video" : "image",
+                }}
+                source="gallery"
                 variant="outline"
-                onClick={() => handleDownload(selectedAsset)}
-              >
-                <Download className="size-4 mr-1.5" />
-                Download
-              </Button>
+              />
               <Button
                 variant="destructive"
                 onClick={() => setDeleteConfirm(selectedAsset.id)}
