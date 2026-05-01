@@ -7,6 +7,17 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-05-01",
+    title: "Filmstrip in the review modal",
+    bullets: [
+      "Inside the review modal, a horizontal filmstrip rail at the bottom now shows what's coming next and what just passed — no more guessing where you are in the queue",
+      "Click any thumbnail to jump to that asset; the active tile auto-scrolls into the center as you walk the queue with j/k",
+      "Approved/rejected items stay in the strip, dimmed with a check or X marker, and j/k automatically skip over them so you only land on what still needs a decision",
+      "Hovering a thumbnail shows the asset's prompt as a tooltip — useful when 52–64px thumbs aren't enough on their own",
+      "Honors prefers-reduced-motion: the strip jumps instantly instead of smooth-scrolling when the OS preference is set",
+    ],
+  },
+  {
+    date: "2026-05-01",
     title: "Threads on every asset",
     bullets: [
       "Every Library asset now has a Thread tab — pin a conversation right next to the work itself, not in a separate Slack channel",
