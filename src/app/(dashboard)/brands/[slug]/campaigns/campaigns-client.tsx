@@ -19,7 +19,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Trash2, Loader2, Megaphone } from "lucide-react";
+import Link from "next/link";
+import {
+  ChevronRight,
+  Loader2,
+  Megaphone,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 interface Campaign {
@@ -35,10 +42,16 @@ interface Campaign {
 interface Props {
   brandId: string;
   brandName: string;
+  brandSlug: string;
   canManage: boolean;
 }
 
-export function CampaignsClient({ brandId, brandName, canManage }: Props) {
+export function CampaignsClient({
+  brandId,
+  brandName,
+  brandSlug,
+  canManage,
+}: Props) {
   const [campaigns, setCampaigns] = useState<Campaign[] | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [draft, setDraft] = useState({ name: "", description: "" });
@@ -134,16 +147,26 @@ export function CampaignsClient({ brandId, brandName, canManage }: Props) {
           {campaigns.map((c) => (
             <li
               key={c.id}
-              className="flex items-center justify-between gap-3 px-4 py-3"
+              className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/40"
             >
-              <div className="min-w-0">
-                <div className="truncate font-medium">{c.name}</div>
-                {c.description && (
-                  <div className="line-clamp-2 text-xs text-muted-foreground">
-                    {c.description}
-                  </div>
-                )}
-              </div>
+              <Link
+                href={`/brands/${brandSlug}/campaigns/${c.id}`}
+                className="-mx-4 -my-3 flex flex-1 items-center gap-2 px-4 py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                aria-label={`View ${c.name}`}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">{c.name}</div>
+                  {c.description && (
+                    <div className="line-clamp-2 text-xs text-muted-foreground">
+                      {c.description}
+                    </div>
+                  )}
+                </div>
+                <ChevronRight
+                  className="size-4 shrink-0 text-muted-foreground"
+                  aria-hidden
+                />
+              </Link>
               {canManage && (
                 <Button
                   variant="ghost"

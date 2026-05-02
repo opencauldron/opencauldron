@@ -57,5 +57,12 @@ export default async function BrandCampaignsPage({
   const ctx = await loadRoleContext(session.user.id, ws.id);
   const canManage = isBrandManager(ctx, brand.id);
 
-  return <CampaignsClient brandId={brand.id} brandName={brand.name} canManage={canManage} />;
+  return (
+    <CampaignsClient
+      brandId={brand.id}
+      brandName={brand.name}
+      brandSlug={slug}
+      canManage={canManage}
+    />
+  );
 }

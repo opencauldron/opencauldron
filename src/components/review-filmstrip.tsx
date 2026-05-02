@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { CheckCircle2, XCircle } from "lucide-react";
+import { CheckCircle2, Megaphone, XCircle } from "lucide-react";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -268,6 +268,30 @@ function FilmstripTileImpl({
                   <XCircle className="size-3 text-rose-500" />
                 </span>
               )}
+
+              {/* Campaign marker — bottom-left. Always rendered: solid chip
+                  when tagged, dashed/em-dash when not. Read-only, marker
+                  only — the modal's metadata strip carries the name. */}
+              {item.campaigns.length > 0 ? (
+                <span
+                  className="absolute bottom-1 left-1 inline-flex size-4 items-center justify-center rounded-full bg-primary/85 text-primary-foreground ring-1 ring-primary/40 backdrop-blur-sm"
+                  aria-label={
+                    item.campaigns.length === 1
+                      ? `Campaign: ${item.campaigns[0].name}`
+                      : `${item.campaigns.length} campaigns`
+                  }
+                >
+                  <Megaphone className="size-2.5" aria-hidden />
+                </span>
+              ) : (
+                <span
+                  className="absolute bottom-1 left-1 inline-flex size-4 items-center justify-center rounded-full bg-background/70 text-muted-foreground ring-1 ring-foreground/15 backdrop-blur-sm"
+                  aria-label="No campaign"
+                  aria-hidden
+                >
+                  <Megaphone className="size-2.5 opacity-60" />
+                </span>
+              )}
             </button>
           </div>
         }
@@ -284,7 +308,8 @@ export const FilmstripTile = React.memo(
     prev.isActive === next.isActive &&
     prev.decision === next.decision &&
     prev.tabIndex === next.tabIndex &&
-    prev.onActivate === next.onActivate
+    prev.onActivate === next.onActivate &&
+    prev.item.campaigns.length === next.item.campaigns.length
 );
 
 // ---------------------------------------------------------------------------

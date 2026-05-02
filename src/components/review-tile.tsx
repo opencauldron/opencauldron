@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ImageOff, TriangleAlert, Video } from "lucide-react";
+import { ImageOff, Megaphone, TriangleAlert, Video } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -71,8 +71,8 @@ export function ReviewTile({ item, index, onActivate }: ReviewTileProps) {
         )}
 
         {/* Top-left: media-type indicator (image is implicit, video gets a chip) */}
-        {item.mediaType === "video" && (
-          <div className="absolute left-2 top-2">
+        <div className="absolute left-2 top-2 flex flex-wrap items-center gap-1">
+          {item.mediaType === "video" && (
             <Badge
               variant="secondary"
               className="gap-1 bg-background/85 text-foreground ring-1 ring-foreground/15 backdrop-blur-sm"
@@ -80,8 +80,29 @@ export function ReviewTile({ item, index, onActivate }: ReviewTileProps) {
               <Video className="size-3" aria-hidden />
               Video
             </Badge>
-          </div>
-        )}
+          )}
+          {item.campaigns.length > 0 ? (
+            <span
+              className="inline-flex h-5 max-w-[140px] items-center gap-1 rounded-md bg-primary/15 px-1.5 text-[10px] font-medium text-primary ring-1 ring-primary/25 backdrop-blur-sm"
+              title={item.campaigns.map((c) => c.name).join(", ")}
+            >
+              <Megaphone className="size-2.5 shrink-0" aria-hidden />
+              <span className="truncate">
+                {item.campaigns.length === 1
+                  ? item.campaigns[0].name
+                  : `${item.campaigns.length} campaigns`}
+              </span>
+            </span>
+          ) : (
+            <span
+              className="inline-flex h-5 items-center gap-1 rounded-md bg-background/70 px-1.5 text-[10px] font-medium text-muted-foreground ring-1 ring-foreground/15 backdrop-blur-sm"
+              aria-label="No campaign"
+            >
+              <Megaphone className="size-2.5 opacity-60" aria-hidden />
+              <span aria-hidden>—</span>
+            </span>
+          )}
+        </div>
 
         {/* Top-right: brand-kit-overridden warning marker (icon-only to avoid colliding
             with the Video badge at small breakpoints). Full text moves into the
