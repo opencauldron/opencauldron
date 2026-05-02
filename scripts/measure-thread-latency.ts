@@ -28,8 +28,7 @@
  *   DEV_LOGIN_USER_ID=<uuid> pnpm tsx scripts/measure-thread-latency.ts \
  *     --thread <threadId> --subscribers 10 --messages 30
  *
- * Pre-req: dev server running on localhost:9999 with THREADS_ENABLED=true
- * and DEV_LOGIN_ENABLED=true.
+ * Pre-req: dev server running on localhost:9999 with DEV_LOGIN_ENABLED=true.
  */
 
 import dotenv from "dotenv";

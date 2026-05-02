@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyReactionDeltas,
   type ReactionDelta,
-} from "@/app/(dashboard)/library/threads/use-thread-stream";
+} from "@/components/threads/use-thread-stream";
 
 type Reaction = {
   emoji: string;

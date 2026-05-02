@@ -43,5 +43,14 @@ export default async function BrandGalleryPage({ params }: Props) {
 
   if (!brand) notFound();
 
-  return <GalleryClient lockedBrandId={brand.id} />;
+  return (
+    <GalleryClient
+      lockedBrandId={brand.id}
+      viewer={{
+        id: session.user.id,
+        displayName: session.user.name ?? null,
+        avatarUrl: session.user.image ?? null,
+      }}
+    />
+  );
 }

@@ -36,10 +36,6 @@ import { randomUUID } from "node:crypto";
 
 export const runtime = "nodejs";
 
-function flagOff(): NextResponse {
-  return NextResponse.json({ error: "Not found" }, { status: 404 });
-}
-
 const postSchema = z.object({
   emoji: z.string().min(1).max(64),
 });
@@ -48,7 +44,6 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; messageId: string }> }
 ) {
-  if (!env.THREADS_ENABLED) return flagOff();
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

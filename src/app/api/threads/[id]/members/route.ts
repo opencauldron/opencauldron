@@ -6,7 +6,6 @@
  * coalescing reaction deltas.
  *
  * Auth: signed-in workspace member of the thread's workspace.
- * Flag : 404 when `THREADS_ENABLED=false`.
  *
  * Cache hint: clients should fetch once per thread-panel mount and reuse
  * the result for the panel's lifetime. The roster mutates rarely; staleness
@@ -16,23 +15,16 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { env } from "@/lib/env";
 import {
   PermissionError,
   assertWorkspaceMemberForThread,
 } from "@/lib/threads/permissions";
 import { resolveWorkspaceMembersForMention } from "@/lib/threads/resolve-mentions";
 
-function flagOff(): NextResponse {
-  return NextResponse.json({ error: "Not found" }, { status: 404 });
-}
-
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!env.THREADS_ENABLED) return flagOff();
-
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

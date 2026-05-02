@@ -9,7 +9,6 @@
  * assets when those assets are referenced inside a thread message.
  *
  * Auth: signed-in workspace member of the asset's workspace.
- * Flag : 404 when `THREADS_ENABLED=false`.
  *
  * Response shape (200): `{ asset: { id, url, thumbnailUrl, fileName, source,
  * width, height, mimeType, brandId } }`. Slim — the picker hydrates more,
@@ -24,7 +23,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { env } from "@/lib/env";
 import { assets, uploads } from "@/lib/db/schema";
 import { getAssetUrl } from "@/lib/storage";
 import {
@@ -32,16 +30,10 @@ import {
   assertWorkspaceMemberForAsset,
 } from "@/lib/threads/permissions";
 
-function flagOff(): NextResponse {
-  return NextResponse.json({ error: "Not found" }, { status: 404 });
-}
-
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ assetId: string }> }
 ) {
-  if (!env.THREADS_ENABLED) return flagOff();
-
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

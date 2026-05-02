@@ -87,7 +87,11 @@ export interface LibraryAsset {
   embeddedAt: string | null;
   createdAt: string;
   tags: string[];
-  campaigns: string[];
+  /**
+   * Campaigns this asset is tagged with. `{id, name}` pairs — the client uses
+   * the name for chips and the id for PATCH writes.
+   */
+  campaigns: { id: string; name: string }[];
   // WebP display variant + dual-format download fields. Hydrated by the
   // Library API (`src/app/api/library/lib.ts`) for every item; null when the
   // asset is a video, pre-backfill, or its encoder failed. The detail panel
@@ -123,7 +127,6 @@ interface LibraryClientProps {
   facetTags: TagOption[];
   hasMixedStatuses: boolean;
   viewer: LibraryViewer;
-  threadsEnabled: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +200,6 @@ function LibraryGridContainer({
   initialTotal,
   initialBrands,
   viewer,
-  threadsEnabled,
 }: LibraryClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -418,7 +420,6 @@ function LibraryGridContainer({
   }
 
   useEffect(() => {
-    if (!threadsEnabled) return;
     if (!selectedId) {
       lazyAssetRequestedRef.current = null;
       return;
@@ -490,7 +491,7 @@ function LibraryGridContainer({
     return () => {
       cancelled = true;
     };
-  }, [selectedId, items, threadsEnabled]);
+  }, [selectedId, items]);
 
   const selected = selectedId
     ? items.find((it) => it.id === selectedId) ??
@@ -550,7 +551,6 @@ function LibraryGridContainer({
         onAssetDelete={handleAssetDelete}
         onBrandPinChange={handleBrandPinChange}
         viewer={viewer}
-        threadsEnabled={threadsEnabled}
         initialMessageId={urlMessageId}
       />
     </div>

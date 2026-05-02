@@ -6,6 +6,26 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-05-02",
+    title: "Threads now everywhere you view an asset",
+    bullets: [
+      "Open the Thread tab from the gallery, the brand gallery, and the review modal — not just the library",
+      "In the review modal the Thread tab sits next to Info; j/k/a/r shortcuts pause while you're reading or composing a message so a stray keystroke can't approve, reject, or skip the asset",
+      "Anyone in the workspace who can see the asset can join the conversation — same permissions as before, just more places to drop in",
+    ],
+  },
+  {
+    date: "2026-05-02",
+    title: "Brand campaigns now tag assets",
+    bullets: [
+      "Tag any Library asset with one or more campaigns from the asset detail panel — typeahead search, with a \"+ New campaign\" affordance built in",
+      "When you generate, pick a campaign right next to the brand selector and every asset that comes out lands pre-tagged",
+      "The review modal, gallery tile, and filmstrip now show the campaign alongside brand, model, and date — em-dash when the asset isn't tagged",
+      "Brand campaigns now have their own detail page with the campaign's assets in a grid, plus an \"Add assets\" bulk-pick dialog (scoped to the brand) and a \"Generate for campaign\" CTA",
+      "Campaign chips on Library assets are uuids end-to-end — renaming a campaign now updates the chip everywhere instead of leaving a stale name behind",
+    ],
+  },
+  {
     date: "2026-05-01",
     title: "Now called OpenCauldron",
     bullets: [

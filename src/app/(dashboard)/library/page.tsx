@@ -124,10 +124,10 @@ export default async function LibraryPage() {
     list.push(row.tag);
     tagsById.set(row.assetId, list);
   }
-  const campaignsById = new Map<string, string[]>();
+  const campaignsById = new Map<string, { id: string; name: string }[]>();
   for (const row of campaignRows) {
     const list = campaignsById.get(row.assetId) ?? [];
-    list.push(row.campaignName);
+    list.push({ id: row.campaignId, name: row.campaignName });
     campaignsById.set(row.assetId, list);
   }
 
@@ -368,7 +368,6 @@ export default async function LibraryPage() {
           displayName: session.user.name ?? null,
           avatarUrl: session.user.image ?? null,
         }}
-        threadsEnabled={env.THREADS_ENABLED}
       />
     </div>
   );

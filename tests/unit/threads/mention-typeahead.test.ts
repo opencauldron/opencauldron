@@ -12,7 +12,7 @@ import {
   extractActiveMention,
   filterMembers,
   type MentionMember,
-} from "@/app/(dashboard)/library/threads/mention-typeahead";
+} from "@/components/threads/mention-typeahead";
 
 describe("extractActiveMention", () => {
   it("matches an empty token immediately after `@`", () => {

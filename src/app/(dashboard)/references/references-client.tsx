@@ -178,6 +178,14 @@ export function ReferencesClient() {
       )}
 
       {/* Detail Dialog */}
+      {/*
+        TODO(threads): wire ThreadPanel into this Dialog once references
+        either (a) move into the `assets` table, or (b) get their own
+        permissions helper + thread schema. The current `asset_threads.asset_id
+        → assets.id` FK and `assertWorkspaceMemberForAsset` lookup don't cover
+        the `references` table, so adding the Thread tab here would 404 from
+        every API route. Out of scope for the cross-surface threads rollout.
+      */}
       <Dialog
         open={!!selectedRef}
         onOpenChange={(open) => {

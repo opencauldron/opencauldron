@@ -37,10 +37,6 @@ const EXT_MAP: Record<string, string> = {
   "video/webm": "webm",
 };
 
-function flagOff(): NextResponse {
-  return NextResponse.json({ error: "Not found" }, { status: 404 });
-}
-
 function safeFilename(name: string): string {
   // Strip directory traversal + non-printable bytes; cap length.
   return name.replace(/[\x00-\x1f\\/]/g, "_").slice(0, 200) || "upload";
@@ -50,7 +46,6 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!env.THREADS_ENABLED) return flagOff();
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
