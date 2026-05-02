@@ -169,6 +169,13 @@
       "when": 1778252309000,
       "tag": "0023_campaign_visibility",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1778338709000,
+      "tag": "0024_activity_events",
+      "breakpoints": true
     }
   ]
 }

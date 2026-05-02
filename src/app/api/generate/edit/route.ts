@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { assets } from "@/lib/db/schema";
 import { uploadAsset } from "@/lib/storage";
 import { resolvePersonalBrandId } from "@/lib/workspace/personal";
+import { loadBrandContext } from "@/lib/workspace/permissions";
+import { emitActivity } from "@/lib/activity";
 import { z } from "zod";
 import { editGrokImage } from "@/providers/grok";
 import { remixIdeogramImage } from "@/providers/ideogram";
@@ -63,6 +65,12 @@ export async function POST(req: NextRequest) {
 
     const uploaded = await uploadAsset(result.imageBuffer, userId);
     const brandId = await resolvePersonalBrandId(userId);
+    if (!brandId) {
+      return NextResponse.json(
+        { error: "personal_brand_missing" },
+        { status: 404 }
+      );
+    }
 
     const [asset] = await db
       .insert(assets)
@@ -85,6 +93,23 @@ export async function POST(req: NextRequest) {
         costEstimate: 0.04,
       })
       .returning();
+
+    // Activity feed (US2 / FR-002). Edit always lands on the user's Personal
+    // brand → visibility is `private`. We still resolve the brand context so
+    // a future move-to-managed-brand path naturally gets the right call site.
+    const brandCtx = await loadBrandContext(brandId);
+    if (brandCtx) {
+      await emitActivity(db, {
+        actorId: userId,
+        verb: "generation.created",
+        objectType: "asset",
+        objectId: asset.id,
+        workspaceId: brandCtx.workspaceId,
+        brandId,
+        visibility: brandCtx.isPersonal ? "private" : "brand",
+        metadata: { source: "generated", mediaType: "image", model: "grok-imagine", provider, edit: true },
+      });
+    }
 
     return NextResponse.json({
       asset: {

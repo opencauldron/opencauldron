@@ -16,6 +16,7 @@ import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { assets } from "@/lib/db/schema";
+import { emitActivity } from "@/lib/activity";
 import { logReviewEvent } from "@/lib/transitions";
 import {
   canFork,
@@ -102,6 +103,26 @@ export async function POST(
     fromStatus: null,
     toStatus: "draft",
     note: `Forked from ${source.id}`,
+  });
+
+  // Activity feed (US2 / FR-002). Fork creates a new asset → `generation.created`.
+  // Fork is gated to approved (managed-brand) assets, so by construction the
+  // resulting asset's brand is non-personal — visibility = 'brand'. We still
+  // ask `brandCtx.isPersonal` so a future "fork-into-personal" path stays
+  // correct without a special case here.
+  await emitActivity(db, {
+    actorId: userId,
+    verb: "generation.created",
+    objectType: "asset",
+    objectId: forked.id,
+    workspaceId: brandCtx.workspaceId,
+    brandId: source.brandId,
+    visibility: brandCtx.isPersonal ? "private" : "brand",
+    metadata: {
+      source: "generated",
+      mediaType: source.mediaType,
+      forkedFrom: source.id,
+    },
   });
 
   return NextResponse.json({

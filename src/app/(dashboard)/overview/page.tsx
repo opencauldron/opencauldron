@@ -7,6 +7,7 @@
  * Promise.all, no client JS beyond Next's link router.
  */
 import { redirect } from "next/navigation";
+import { Suspense } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -28,6 +29,10 @@ import { getCurrentWorkspace } from "@/lib/workspace/context";
 import { isWorkspaceAdmin, loadRoleContext } from "@/lib/workspace/permissions";
 import { getAssetUrl } from "@/lib/storage";
 import { StatusBadge, type AssetStatus } from "@/components/status-badge";
+import {
+  RecentActivityRail,
+  RecentActivityRailSkeleton,
+} from "./_components/recent-activity-rail";
 
 export const dynamic = "force-dynamic";
 
@@ -117,6 +122,14 @@ export default async function OverviewPage() {
       </header>
 
       <ActionStrip />
+
+      {/* Recent activity rail (US3). Sits between the quick-action strip
+          and the widget grid: action first, then "what just happened,"
+          then the deeper widgets. Wrapped in Suspense so first paint
+          isn't blocked on the activity query. */}
+      <Suspense fallback={<RecentActivityRailSkeleton />}>
+        <RecentActivityRail userId={userId} workspaceId={workspace.id} />
+      </Suspense>
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-2">
         <Widget
