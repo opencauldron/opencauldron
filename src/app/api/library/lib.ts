@@ -261,3 +261,55 @@ export async function loadOwnedLibraryItem(
     campaigns.get(row.id) ?? []
   );
 }
+
+/**
+ * Variant for callers that have already authorized access (e.g. via
+ * `assertWorkspaceMemberForAsset`). No ownership filter — the caller is
+ * responsible for the auth gate. Used by PATCH so workspace teammates can
+ * tag a peer's asset.
+ */
+export async function loadLibraryItemById(
+  assetId: string
+): Promise<LibraryItem | null> {
+  const [row] = await db
+    .select({
+      id: assets.id,
+      userId: assets.userId,
+      brandId: assets.brandId,
+      r2Key: assets.r2Key,
+      thumbnailR2Key: assets.thumbnailR2Key,
+      fileName: assets.fileName,
+      fileSize: assets.fileSize,
+      width: assets.width,
+      height: assets.height,
+      usageCount: assets.usageCount,
+      source: assets.source,
+      status: assets.status,
+      embeddedAt: assets.embeddedAt,
+      createdAt: assets.createdAt,
+      mediaType: assets.mediaType,
+      uploadContentType: uploads.contentType,
+      creatorId: users.id,
+      creatorName: users.name,
+      creatorImage: users.image,
+      creatorEmail: users.email,
+      webpR2Key: assets.webpR2Key,
+      webpFileSize: assets.webpFileSize,
+      webpStatus: assets.webpStatus,
+      originalMimeType: assets.originalMimeType,
+    })
+    .from(assets)
+    .leftJoin(uploads, eq(uploads.assetId, assets.id))
+    .leftJoin(users, eq(users.id, assets.userId))
+    .where(eq(assets.id, assetId))
+    .limit(1);
+
+  if (!row) return null;
+
+  const { tags, campaigns } = await loadTagsAndCampaigns([row.id]);
+  return hydrateLibraryItem(
+    row,
+    tags.get(row.id) ?? [],
+    campaigns.get(row.id) ?? []
+  );
+}
