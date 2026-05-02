@@ -30,10 +30,12 @@ import {
   canEditBrandKit,
   loadBrandContext,
   loadRoleContext,
+  PermissionError,
 } from "@/lib/workspace/permissions";
+import { assertWorkspaceMemberForAsset } from "@/lib/threads/permissions";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { loadOwnedLibraryItem } from "../lib";
+import { loadLibraryItemById, loadOwnedLibraryItem } from "../lib";
 
 function flagOff(): NextResponse {
   return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -96,17 +98,29 @@ export async function PATCH(
 
   const { id } = await params;
 
-  // Auth + existence: same query, single round-trip.
+  // Tags/campaigns/fileName are workspace-collaborative, not owner-only:
+  // anyone with workspace access to the asset's brand can edit them. Mirrors
+  // the threads auth model so a brand member can tag a teammate's asset.
+  // Fall back to ownership for orphan-brand (legacy) assets where the
+  // brand→workspace chain is unresolved.
   const [existing] = await db
-    .select({ id: assets.id, userId: assets.userId })
+    .select({ id: assets.id, userId: assets.userId, brandId: assets.brandId })
     .from(assets)
     .where(eq(assets.id, id))
     .limit(1);
   if (!existing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  if (existing.userId !== userId) {
-    // Don't leak existence cross-user — 404 mirrors the references behavior.
+  if (existing.brandId) {
+    try {
+      await assertWorkspaceMemberForAsset(userId, id);
+    } catch (err) {
+      if (err instanceof PermissionError) {
+        return NextResponse.json({ error: err.code }, { status: err.status });
+      }
+      throw err;
+    }
+  } else if (existing.userId !== userId) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
@@ -214,7 +228,8 @@ export async function PATCH(
   }
 
   // Return the freshly-hydrated item so the client doesn't need a follow-up GET.
-  const item = await loadOwnedLibraryItem(id, userId);
+  // Workspace-aware load — the user may not own this asset but had edit access.
+  const item = await loadLibraryItemById(id);
   return NextResponse.json({ item });
 }
 
