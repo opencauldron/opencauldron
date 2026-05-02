@@ -7,6 +7,17 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-05-02",
+    title: "Activity feed — see what's happening across your workspace",
+    bullets: [
+      "New /activity page with three lenses: For you (events you're in), My brands (events on brands you're a member of), and Workspace (workspace-wide moments like feats and level-ups)",
+      "Recent activity rail on the home dashboard surfaces the last 6 lifecycle moments at a glance — click any row to jump to the asset, profile, or feat",
+      "Filter chips narrow the feed by event type (approvals, drafts & uploads, feats, level-ups) and time window (today / 7 days / 30 days / all time) — filters live in the URL so links are shareable",
+      "The feed refreshes itself every 45 seconds while the tab is visible; new events prepend without losing your scroll position",
+      "Existing assets, approvals, feats, and level-ups have been backfilled so the feed is non-empty from day one",
+    ],
+  },
+  {
+    date: "2026-05-02",
     title: "Share a campaign with anyone — no login required",
     bullets: [
       "Flip the new Visibility toggle on a campaign to mint a shareable public link — visitors don't need an account",
