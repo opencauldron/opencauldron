@@ -64,6 +64,7 @@ public/logos/taboogrow.png
 .claude/agents/
 .claude/skills/*
 !.claude/skills/integrate-provider/
+!.claude/skills/sync-dev-db/
 !.claude/skills/update-changelog/
 /skills/
 skills-lock.json
