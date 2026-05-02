@@ -1,11 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Hash, Megaphone, Plus, Wand2 } from "lucide-react";
+import {
+  Check,
+  Copy,
+  Hash,
+  Lock,
+  Megaphone,
+  Plus,
+  RefreshCw,
+  Wand2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { LibraryAssetPickerDialog } from "@/components/threads/library-asset-picker-dialog";
 import { cn } from "@/lib/utils";
 
@@ -45,7 +60,11 @@ interface CampaignDetailClientProps {
     description: string | null;
     startsAt: string | null;
     endsAt: string | null;
+    visibility: "private" | "public";
+    publicSlug: string | null;
   };
+  publicSharingAvailable: boolean;
+  canManageCampaign: boolean;
 }
 
 export function CampaignDetailClient({
@@ -53,9 +72,148 @@ export function CampaignDetailClient({
   brandName,
   brandSlug,
   campaign,
+  publicSharingAvailable,
+  canManageCampaign,
 }: CampaignDetailClientProps) {
+  // Visibility state — server-rendered initial values, mutated through
+  // POST /api/campaigns/[id]/visibility. We deliberately track this locally
+  // (rather than calling router.refresh after every mutation) so the URL
+  // field updates without a full RSC round-trip.
+  const [visibility, setVisibility] = useState<"private" | "public">(
+    campaign.visibility
+  );
+  const [publicSlug, setPublicSlug] = useState<string | null>(
+    campaign.publicSlug
+  );
+  const [mutatingVisibility, setMutatingVisibility] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [items, setItems] = useState<Asset[] | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+
+  const publicUrl = useMemo(() => {
+    if (visibility !== "public" || !publicSlug) return null;
+    if (typeof window === "undefined") return null;
+    return `${window.location.origin}/c/${brandSlug}/${publicSlug}`;
+  }, [visibility, publicSlug, brandSlug]);
+
+  const callVisibility = useCallback(
+    async (action: "publish" | "unpublish" | "regenerate") => {
+      const res = await fetch(`/api/campaigns/${campaign.id}/visibility`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const payload = (await res.json().catch(() => ({}))) as {
+        visibility?: "private" | "public";
+        publicSlug?: string | null;
+        url?: string | null;
+        error?: string;
+        message?: string;
+      };
+      if (!res.ok) {
+        if (res.status === 412 && payload.error === "r2_public_url_unset") {
+          throw new Error(
+            payload.message ??
+              "Public sharing isn't configured on this server."
+          );
+        }
+        throw new Error(payload.error ?? payload.message ?? "Request failed");
+      }
+      return payload;
+    },
+    [campaign.id]
+  );
+
+  const handlePublish = useCallback(async () => {
+    if (mutatingVisibility) return;
+    setMutatingVisibility(true);
+    try {
+      const data = await callVisibility("publish");
+      setVisibility(data.visibility ?? "public");
+      setPublicSlug(data.publicSlug ?? null);
+      toast.success("Public link is live.");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Couldn't publish the campaign."
+      );
+    } finally {
+      setMutatingVisibility(false);
+    }
+  }, [callVisibility, mutatingVisibility]);
+
+  const handleUnpublish = useCallback(async () => {
+    if (mutatingVisibility) return;
+    setMutatingVisibility(true);
+    try {
+      const data = await callVisibility("unpublish");
+      setVisibility(data.visibility ?? "private");
+      setPublicSlug(data.publicSlug ?? null);
+      toast.success("Campaign is private. The previous link is dead.");
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Couldn't make the campaign private."
+      );
+    } finally {
+      setMutatingVisibility(false);
+    }
+  }, [callVisibility, mutatingVisibility]);
+
+  const handleRegenerate = useCallback(async () => {
+    if (mutatingVisibility) return;
+    setMutatingVisibility(true);
+    try {
+      const data = await callVisibility("regenerate");
+      setVisibility(data.visibility ?? "public");
+      setPublicSlug(data.publicSlug ?? null);
+      // Auto-copy the new URL — visitors won't have time to grab the old one.
+      const next =
+        data.url ??
+        (data.publicSlug && typeof window !== "undefined"
+          ? `${window.location.origin}/c/${brandSlug}/${data.publicSlug}`
+          : null);
+      if (next) {
+        try {
+          await navigator.clipboard.writeText(next);
+        } catch {
+          // Clipboard write can fail silently in non-secure contexts; the URL
+          // still surfaces in the read-only field below the buttons.
+        }
+      }
+      toast.success("Old link is now dead. New link copied.");
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Couldn't regenerate the link."
+      );
+    } finally {
+      setMutatingVisibility(false);
+    }
+  }, [brandSlug, callVisibility, mutatingVisibility]);
+
+  const handleCopy = useCallback(async () => {
+    if (!publicUrl) return;
+    try {
+      await navigator.clipboard.writeText(publicUrl);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      toast.error("Couldn't copy the link. Try selecting it manually.");
+    }
+  }, [publicUrl]);
+
+  const handleToggle = useCallback(
+    (next: boolean) => {
+      if (next) {
+        void handlePublish();
+      } else {
+        void handleUnpublish();
+      }
+    },
+    [handlePublish, handleUnpublish]
+  );
 
   const refetch = useCallback(async () => {
     setItems(null);
@@ -173,6 +331,19 @@ export function CampaignDetailClient({
         </div>
       </header>
 
+      <CampaignVisibilitySection
+        visibility={visibility}
+        publicUrl={publicUrl}
+        publicSharingAvailable={publicSharingAvailable}
+        canManageCampaign={canManageCampaign}
+        mutating={mutatingVisibility}
+        copied={copied}
+        onToggle={handleToggle}
+        onCopy={handleCopy}
+        onRegenerate={handleRegenerate}
+        onUnpublish={handleUnpublish}
+      />
+
       <section>
         <h3 className="sr-only">Campaign assets</h3>
         {items === null ? (
@@ -211,6 +382,194 @@ export function CampaignDetailClient({
         confirmLabel="Add to campaign"
       />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CampaignVisibilitySection — the Public/Private toggle, the read-only URL
+// field, and the Regenerate / Make Private affordances. Renders inert with a
+// tooltip when `R2_PUBLIC_URL` is unset on the server (D14 / FR-017),
+// EXCEPT for the case where a previously-public campaign exists — operators
+// can always revoke prior links via Make Private regardless of the env var.
+// ---------------------------------------------------------------------------
+
+interface CampaignVisibilitySectionProps {
+  visibility: "private" | "public";
+  publicUrl: string | null;
+  publicSharingAvailable: boolean;
+  canManageCampaign: boolean;
+  mutating: boolean;
+  copied: boolean;
+  onToggle: (next: boolean) => void;
+  onCopy: () => void;
+  onRegenerate: () => void;
+  onUnpublish: () => void;
+}
+
+function CampaignVisibilitySection({
+  visibility,
+  publicUrl,
+  publicSharingAvailable,
+  canManageCampaign,
+  mutating,
+  copied,
+  onToggle,
+  onCopy,
+  onRegenerate,
+  onUnpublish,
+}: CampaignVisibilitySectionProps) {
+  const isPublic = visibility === "public";
+  // Toggle is disabled when sharing isn't configured AND the campaign is
+  // currently private — there's nothing publishable. If the campaign is
+  // already public from a prior deploy, leave Make Private wired up.
+  const toggleDisabled =
+    !canManageCampaign ||
+    mutating ||
+    (!publicSharingAvailable && !isPublic);
+
+  const switchEl = (
+    <Switch
+      checked={isPublic}
+      onCheckedChange={onToggle}
+      disabled={toggleDisabled}
+      aria-label={isPublic ? "Make campaign private" : "Publish campaign"}
+    />
+  );
+
+  return (
+    <section
+      data-slot="campaign-visibility"
+      className={cn(
+        "flex flex-col gap-4 rounded-xl bg-card p-5 ring-1 ring-foreground/10",
+        "sm:flex-row sm:items-start sm:justify-between"
+      )}
+    >
+      <div className="min-w-0 space-y-1">
+        <h3 className="font-heading text-base font-semibold">
+          <span className="inline-flex items-center gap-2">
+            {isPublic ? (
+              <Megaphone
+                className="size-4 text-primary"
+                strokeWidth={1.5}
+                aria-hidden
+              />
+            ) : (
+              <Lock
+                className="size-4 text-muted-foreground"
+                strokeWidth={1.5}
+                aria-hidden
+              />
+            )}
+            Visibility
+          </span>
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          {isPublic
+            ? "Anyone with the link can view this campaign's approved assets."
+            : "Only workspace members can view this campaign."}
+        </p>
+        {!publicSharingAvailable && !isPublic && (
+          <p className="text-xs text-muted-foreground">
+            Public sharing requires <code className="font-mono">R2_PUBLIC_URL</code>.
+            Ask your administrator to configure it.
+          </p>
+        )}
+      </div>
+
+      <div className="flex shrink-0 flex-col items-end gap-3">
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "text-xs font-medium uppercase tracking-wider",
+              isPublic ? "text-muted-foreground" : "text-foreground"
+            )}
+          >
+            Private
+          </span>
+          {!publicSharingAvailable && !isPublic ? (
+            <Tooltip>
+              <TooltipTrigger render={<span className="inline-flex" />}>
+                {switchEl}
+              </TooltipTrigger>
+              <TooltipContent>
+                Public sharing requires R2_PUBLIC_URL. Ask your administrator
+                to configure it.
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            switchEl
+          )}
+          <span
+            className={cn(
+              "text-xs font-medium uppercase tracking-wider",
+              isPublic ? "text-foreground" : "text-muted-foreground"
+            )}
+          >
+            Public
+          </span>
+        </div>
+
+        {isPublic && (
+          <div className="w-full max-w-md space-y-2 sm:w-[420px]">
+            <div className="flex items-center gap-2 rounded-lg bg-muted px-3 py-2 ring-1 ring-foreground/10">
+              <input
+                type="text"
+                readOnly
+                value={publicUrl ?? "Generating link…"}
+                onFocus={(e) => e.currentTarget.select()}
+                className="min-w-0 flex-1 truncate bg-transparent font-mono text-xs text-foreground outline-none"
+                aria-label="Public campaign URL"
+              />
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={onCopy}
+                disabled={!publicUrl}
+                aria-label="Copy public URL"
+              >
+                {copied ? (
+                  <>
+                    <Check aria-hidden />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy aria-hidden />
+                    Copy
+                  </>
+                )}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Renaming the campaign won&apos;t change this URL — click
+              Regenerate to mint a new one.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onRegenerate}
+                disabled={
+                  !canManageCampaign || mutating || !publicSharingAvailable
+                }
+              >
+                <RefreshCw aria-hidden />
+                Regenerate
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onUnpublish}
+                disabled={!canManageCampaign || mutating}
+              >
+                <Lock aria-hidden />
+                Make private
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

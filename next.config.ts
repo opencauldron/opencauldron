@@ -29,6 +29,31 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_APP_VERSION: pkg.version,
   },
+  // --------------------------------------------------------------------------
+  // Public campaign galleries (`/c/<brandSlug>/<campaignPublicSlug>`).
+  //
+  // - X-Robots-Tag: prevent search engines from indexing public gallery URLs
+  //   (FR-008). The page also emits a <meta name="robots"> tag at the RSC
+  //   level for belt-and-suspenders — see specs/public-campaign-galleries.
+  // - Cache-Control: let Vercel's edge cache absorb viral spikes (NFR-002).
+  //   60s fresh + 5min stale-while-revalidate is short enough that
+  //   visibility flips and regenerates take effect quickly via
+  //   `revalidatePath`, while still cushioning bursts.
+  // --------------------------------------------------------------------------
+  async headers() {
+    return [
+      {
+        source: "/c/:brandSlug/:slug*",
+        headers: [
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+          {
+            key: "Cache-Control",
+            value: "public, s-maxage=60, stale-while-revalidate=300",
+          },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

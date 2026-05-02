@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { assets, brands } from "@/lib/db/schema";
+import { assetCampaigns, assets, brands, campaigns } from "@/lib/db/schema";
+import { checkAndConsumeIpRateLimit } from "@/lib/public/rate-limit";
 import { getAssetObject } from "@/lib/storage";
 import { canRead, loadRoleContext } from "@/lib/workspace/permissions";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 /**
  * Same-origin download proxy. The client uses an `<a href download>` click on
@@ -39,11 +40,6 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   const { id } = await params;
   const variantParam = req.nextUrl.searchParams.get("variant") ?? "original";
   if (!ALLOWED_VARIANTS.has(variantParam as Variant)) {
@@ -56,6 +52,7 @@ export async function GET(
       id: assets.id,
       userId: assets.userId,
       brandId: assets.brandId,
+      status: assets.status,
       r2Key: assets.r2Key,
       webpR2Key: assets.webpR2Key,
       webpStatus: assets.webpStatus,
@@ -72,14 +69,84 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Mirror the read-permission gate from GET /api/assets/[id].
-  if (asset.brandId && asset.brandWorkspaceId) {
-    const ctx = await loadRoleContext(session.user.id, asset.brandWorkspaceId);
-    if (!canRead(ctx, { brandId: asset.brandId, userId: asset.userId })) {
+  /**
+   * Auth gate.
+   *
+   * Authenticated callers go through the existing in-app permission check
+   * (workspace role + asset visibility) — unchanged behavior.
+   *
+   * Unauthenticated callers are normally rejected with 401, but a NARROW
+   * bypass admits requests for assets that roll up to a `visibility = 'public'`
+   * campaign AND are themselves `status = 'approved'` (US2 / FR-012, plan D12).
+   *
+   * Defense in depth — the bypass query joins through the `asset_campaigns`
+   * junction table, which is the ONLY campaign↔asset relationship in the
+   * schema (there is no `assets.campaign_id` direct FK; see
+   * `src/lib/db/schema.ts:261-348` for `assets` and `:411-422` for the
+   * junction). Both predicates (`assets.status = 'approved'` AND
+   * `campaigns.visibility = 'public'`) MUST match for the EXISTS to return a
+   * row, so this cannot become a back door for arbitrary asset IDs:
+   *   - draft / in_review / rejected / archived assets fail the status check
+   *   - assets attached only to private campaigns fail the visibility check
+   *   - assets attached to no campaign at all fail the join
+   *
+   * Unauthenticated requests are also rate-limited by IP (T017/T021) — see
+   * `specs/public-campaign-galleries/spec.md` NFR-004.
+   */
+  const session = await auth();
+
+  if (session?.user?.id) {
+    // Authenticated path: existing in-app permission gate. Mirrors
+    // GET /api/assets/[id].
+    if (asset.brandId && asset.brandWorkspaceId) {
+      const ctx = await loadRoleContext(
+        session.user.id,
+        asset.brandWorkspaceId
+      );
+      if (!canRead(ctx, { brandId: asset.brandId, userId: asset.userId })) {
+        return NextResponse.json({ error: "Not found" }, { status: 404 });
+      }
+    } else if (asset.userId !== session.user.id) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
-  } else if (asset.userId !== session.user.id) {
-    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  } else {
+    // Unauthenticated path — rate-limit per IP first (T017/T021, NFR-004).
+    const ip =
+      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+    const rl = checkAndConsumeIpRateLimit(ip, {
+      maxPerMinute: 30,
+      burstPer5s: 5,
+    });
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: "rate_limited" },
+        {
+          status: 429,
+          headers: { "Retry-After": String(Math.ceil(rl.retryAfterMs / 1000)) },
+        }
+      );
+    }
+
+    // Public-campaign bypass. The asset must be `approved` AND attached (via
+    // the `asset_campaigns` junction — the ONLY campaign↔asset relationship)
+    // to a campaign with `visibility = 'public'`.
+    if (asset.status !== "approved") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const [hit] = await db
+      .select({ id: assetCampaigns.assetId })
+      .from(assetCampaigns)
+      .innerJoin(campaigns, eq(campaigns.id, assetCampaigns.campaignId))
+      .where(
+        and(
+          eq(assetCampaigns.assetId, asset.id),
+          eq(campaigns.visibility, "public")
+        )
+      )
+      .limit(1);
+    if (!hit) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
   }
 
   let key: string;

@@ -7,6 +7,17 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-05-02",
+    title: "Share a campaign with anyone — no login required",
+    bullets: [
+      "Flip the new Visibility toggle on a campaign to mint a shareable public link — visitors don't need an account",
+      "Public pages show only approved assets with no prompts, models, or other internal metadata",
+      "Hit Regenerate at any time to invalidate the old link and mint a fresh one",
+      "Renaming a campaign keeps its public link working — only Regenerate breaks it on purpose",
+      "Public pages are never indexed by search engines (noindex headers, no sitemap)",
+    ],
+  },
+  {
+    date: "2026-05-02",
     title: "Threads now everywhere you view an asset",
     bullets: [
       "Open the Thread tab from the gallery, the brand gallery, and the review modal — not just the library",

@@ -19,9 +19,11 @@ import { db } from "@/lib/db";
 import { brands, campaigns } from "@/lib/db/schema";
 import { getCurrentWorkspace } from "@/lib/workspace/context";
 import {
+  isBrandManager,
   isBrandMember,
   loadRoleContext,
 } from "@/lib/workspace/permissions";
+import { isPublicSharingAvailable } from "@/lib/public/r2-availability";
 import { CampaignDetailClient } from "./campaign-detail-client";
 
 interface Props {
@@ -84,6 +86,8 @@ export default async function CampaignDetailPage({ params }: Props) {
       startsAt: campaigns.startsAt,
       endsAt: campaigns.endsAt,
       createdAt: campaigns.createdAt,
+      visibility: campaigns.visibility,
+      publicSlug: campaigns.publicSlug,
     })
     .from(campaigns)
     .where(and(eq(campaigns.id, id), eq(campaigns.brandId, brand.id)))
@@ -92,6 +96,13 @@ export default async function CampaignDetailPage({ params }: Props) {
 
   const ctx = await loadRoleContext(session.user.id, ws.id);
   if (!isBrandMember(ctx, brand.id)) notFound();
+
+  // T014 / FR-017 — surface whether the visibility toggle should be enabled
+  // and whether the caller can mutate it. `canManageCampaigns` here is
+  // `brand_manager+` on the campaign's brand, matching the gate enforced by
+  // POST /api/campaigns/[id]/visibility.
+  const publicSharingAvailable = isPublicSharingAvailable();
+  const canManageCampaign = isBrandManager(ctx, brand.id);
 
   return (
     <CampaignDetailClient
@@ -106,7 +117,11 @@ export default async function CampaignDetailPage({ params }: Props) {
           ? campaign.startsAt.toISOString()
           : null,
         endsAt: campaign.endsAt ? campaign.endsAt.toISOString() : null,
+        visibility: campaign.visibility,
+        publicSlug: campaign.publicSlug,
       }}
+      publicSharingAvailable={publicSharingAvailable}
+      canManageCampaign={canManageCampaign}
     />
   );
 }
