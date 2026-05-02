@@ -22,6 +22,12 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
   Search,
   Trash2,
   Calendar,
@@ -39,6 +45,7 @@ import {
   Video,
   Upload,
   ArrowRightLeft,
+  MessageSquareText,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
@@ -58,6 +65,7 @@ import {
 } from "@/components/upload-dropzone";
 import { BrandMark } from "@/components/brand-mark";
 import { AssetDownloadButton } from "@/components/library/asset-download-button";
+import { ThreadPanel } from "@/components/threads/thread-panel";
 
 const PROVIDER_LABELS: Record<string, string> = {
   google: "Gemini",
@@ -157,6 +165,17 @@ const MEDIA_TYPE_OPTIONS = [
 // Main Gallery Component
 // -------------------------------------------------------------------
 
+/**
+ * Viewer info threaded through to the asset Dialog's Thread tab. Mirrors
+ * `LibraryViewer` from `library-client.tsx` — sourced from the server-side
+ * session in `page.tsx` so the client doesn't have to re-resolve it.
+ */
+export interface GalleryViewer {
+  id: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
+
 interface GalleryClientProps {
   /**
    * When set, the brand filter is locked to this id: the brand selector is
@@ -164,9 +183,10 @@ interface GalleryClientProps {
    * Used by /brands/[slug]/gallery so the brand layout's tab nav stays visible.
    */
   lockedBrandId?: string;
+  viewer: GalleryViewer;
 }
 
-export function GalleryClient({ lockedBrandId }: GalleryClientProps = {}) {
+export function GalleryClient({ lockedBrandId, viewer }: GalleryClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [assets, setAssets] = useState<GalleryAsset[]>([]);
@@ -893,10 +913,28 @@ export function GalleryClient({ lockedBrandId }: GalleryClientProps = {}) {
                 )}
               </div>
 
-              {/* Metadata Panel — scrolls independently so the image stays
-                  fully visible no matter how much metadata there is.
-                  Order: identity → context → state → content → details. */}
-              <div className="space-y-4 overflow-y-auto border-t md:border-t-0 md:border-l p-6">
+              {/* Metadata + Thread Panel — Tabs strip flips the right column
+                  between asset metadata and the conversation. Asset stays
+                  fully visible on the left no matter which tab is active.
+                  Mirrors the library detail panel pattern. */}
+              <Tabs
+                defaultValue="info"
+                className="flex min-h-0 flex-col gap-0 border-t md:border-t-0 md:border-l"
+              >
+                <div className="border-b border-border bg-background px-5 py-2">
+                  <TabsList variant="line" className="w-full justify-start gap-3">
+                    <TabsTrigger value="info">Info</TabsTrigger>
+                    <TabsTrigger value="thread">
+                      <MessageSquareText aria-hidden />
+                      Thread
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+
+                <TabsContent
+                  value="info"
+                  className="flex-1 space-y-4 overflow-y-auto p-6 data-active:flex data-active:flex-col"
+                >
                 {/* Creator — identity at the top, with avatar */}
                 <div className="flex items-center gap-3">
                   <Avatar className="h-9 w-9">
@@ -1075,7 +1113,20 @@ export function GalleryClient({ lockedBrandId }: GalleryClientProps = {}) {
                     </div>
                   </div>
                 )}
-              </div>
+                </TabsContent>
+
+                <TabsContent
+                  value="thread"
+                  className="flex min-h-0 flex-1 flex-col data-[hidden]:hidden"
+                >
+                  <ThreadPanel
+                    // Re-mount on asset change so the SSE stream resets cleanly.
+                    key={selectedAsset.id}
+                    assetId={selectedAsset.id}
+                    viewer={viewer}
+                  />
+                </TabsContent>
+              </Tabs>
             </div>
 
             {reassignOpen && (

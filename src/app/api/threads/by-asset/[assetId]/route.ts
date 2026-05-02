@@ -4,7 +4,6 @@
  * fully hydrated.
  *
  * Auth: signed-in workspace member of the asset's workspace.
- * Flag : 404 when `THREADS_ENABLED=false`.
  *
  * Lazy-create pattern: `INSERT ... ON CONFLICT (asset_id) DO NOTHING
  * RETURNING ...` — if the row already exists, the RETURNING clause is
@@ -16,7 +15,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { desc, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { env } from "@/lib/env";
 import { assetThreads, messages } from "@/lib/db/schema";
 import {
   PermissionError,
@@ -26,16 +24,10 @@ import { hydrateMessages, type MessageRow } from "@/lib/threads/hydrate";
 
 const HYDRATE_LIMIT = 50;
 
-function flagOff(): NextResponse {
-  return NextResponse.json({ error: "Not found" }, { status: 404 });
-}
-
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ assetId: string }> }
 ) {
-  if (!env.THREADS_ENABLED) return flagOff();
-
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

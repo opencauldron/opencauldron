@@ -1,8 +1,8 @@
 /**
  * GET /api/threads/[id]/stream — Server-Sent Events stream (T022).
  *
- * Auth + workspace membership + `THREADS_ENABLED` flag. Subscribes the
- * connection to the thread-events multiplexer and forwards every event to
+ * Auth + workspace membership. Subscribes the connection to the
+ * thread-events multiplexer and forwards every event to
  * the client as an SSE frame.
  *
  * Honors `Last-Event-Id`: if the client sends one, we replay any events
@@ -18,7 +18,6 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { env } from "@/lib/env";
 import {
   PermissionError,
   assertWorkspaceMemberForThread,
@@ -33,15 +32,10 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function flagOff(): NextResponse {
-  return NextResponse.json({ error: "Not found" }, { status: 404 });
-}
-
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!env.THREADS_ENABLED) return flagOff();
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

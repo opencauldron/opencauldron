@@ -42,7 +42,21 @@ interface QueueResponse {
   queue: ReviewQueueItem[];
 }
 
-export function ReviewClient() {
+/**
+ * Viewer info threaded through to the ReviewModal's Thread tab. Mirrors
+ * `LibraryViewer` — sourced from the server-side session in `page.tsx`.
+ */
+export interface ReviewViewer {
+  id: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
+
+interface ReviewClientProps {
+  viewer: ReviewViewer;
+}
+
+export function ReviewClient({ viewer }: ReviewClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const activeBrandId = searchParams.get("brand");
@@ -390,6 +404,7 @@ export function ReviewClient() {
           onClose={closeModal}
           displayQueue={displayQueue ?? undefined}
           sessionDecisions={sessionDecisions}
+          viewer={viewer}
         />
       )}
     </div>

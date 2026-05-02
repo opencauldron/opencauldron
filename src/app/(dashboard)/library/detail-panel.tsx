@@ -1,12 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Check,
+  ChevronDown,
   Hash,
   Loader2,
+  Megaphone,
   MessageSquareText,
   Pin,
+  Plus,
   Sparkles,
   Trash2,
   Wand2,
@@ -25,7 +29,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Sheet,
   SheetContent,
@@ -43,7 +53,7 @@ import {
 } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import type { LibraryAsset, LibraryViewer } from "./library-client";
-import { ThreadPanel } from "./threads/thread-panel";
+import { ThreadPanel } from "@/components/threads/thread-panel";
 
 export interface LibraryBrand {
   id: string;
@@ -71,11 +81,6 @@ interface LibraryDetailPanelProps {
    */
   viewer: LibraryViewer;
   /**
-   * `THREADS_ENABLED` flag (server-derived). When false, the Thread tab is
-   * hidden and the panel reverts to the legacy single-pane Info-only layout.
-   */
-  threadsEnabled: boolean;
-  /**
    * If a `?message=<id>` is in the URL (deep link from a notification), the
    * panel opens with the Thread tab focused + the row highlighted.
    */
@@ -98,12 +103,11 @@ export function LibraryDetailPanel({
   onAssetDelete,
   onBrandPinChange,
   viewer,
-  threadsEnabled,
   initialMessageId,
 }: LibraryDetailPanelProps) {
-  // Sheet itself doesn't scroll when threads are enabled — the Thread tab
-  // owns its own scroll region and the composer needs to pin to the bottom.
-  // For Info-only mode we keep the legacy `overflow-y-auto` behavior.
+  // Sheet itself doesn't scroll — the Thread tab owns its own scroll region
+  // and the composer needs to pin to the bottom. The Info tab scrolls inside
+  // its own TabsContent.
   return (
     <Sheet
       open={asset !== null}
@@ -113,12 +117,7 @@ export function LibraryDetailPanel({
     >
       <SheetContent
         side="right"
-        className={cn(
-          "w-full gap-0 sm:!max-w-md",
-          threadsEnabled
-            ? "flex flex-col overflow-hidden"
-            : "overflow-y-auto"
-        )}
+        className="flex w-full flex-col gap-0 overflow-hidden sm:!max-w-md"
       >
         {asset ? (
           <DetailPanelBody
@@ -128,7 +127,6 @@ export function LibraryDetailPanel({
             onAssetDelete={onAssetDelete}
             onBrandPinChange={onBrandPinChange}
             viewer={viewer}
-            threadsEnabled={threadsEnabled}
             initialMessageId={initialMessageId ?? null}
           />
         ) : null}
@@ -150,7 +148,6 @@ function DetailPanelBody({
   onAssetDelete,
   onBrandPinChange,
   viewer,
-  threadsEnabled,
   initialMessageId,
 }: {
   asset: LibraryAsset;
@@ -163,7 +160,6 @@ function DetailPanelBody({
     pinned: boolean
   ) => void;
   viewer: LibraryViewer;
-  threadsEnabled: boolean;
   initialMessageId: string | null;
 }) {
   const router = useRouter();
@@ -172,7 +168,7 @@ function DetailPanelBody({
   // When deep-linked via `?message=<id>` the panel opens with the Thread tab
   // selected; otherwise default to Info for parity with current behavior.
   const [activeTab, setActiveTab] = useState<string>(
-    threadsEnabled && initialMessageId ? "thread" : "info"
+    initialMessageId ? "thread" : "info"
   );
 
   const handleUse = () => {
@@ -245,17 +241,13 @@ function DetailPanelBody({
           emptyHint="Tags help you find this asset later — add a few descriptors."
         />
 
-        {/* Campaigns */}
-        <ChipEditor
-          label="Campaigns"
-          placeholder="Add a campaign"
-          values={asset.campaigns}
-          onChange={async (next) => {
-            const ok = await patchAsset(asset.id, { campaigns: next });
-            if (ok) onAssetUpdate({ ...asset, campaigns: next });
-            return ok;
-          }}
-          emptyHint="Group assets by campaign to keep launches organized."
+        {/* Campaigns — typeahead Combobox sourced from
+            /api/campaigns?brandId=<asset.brandId>. Personal-brand assets
+            (brandId === null) skip the picker entirely; they don't support
+            campaigns. */}
+        <CampaignPicker
+          asset={asset}
+          onChange={(next) => onAssetUpdate({ ...asset, campaigns: next })}
         />
 
         <Separator />
@@ -313,29 +305,9 @@ function DetailPanelBody({
     />
   );
 
-  // Threads disabled — render the legacy Info-only layout. Keeps the diff
-  // minimal for environments where the flag is off.
-  if (!threadsEnabled) {
-    return (
-      <>
-        <SheetHeader className="px-5 pt-5 pb-3">
-          <SheetTitle className="truncate pr-8">
-            {asset.fileName ?? "Untitled asset"}
-          </SheetTitle>
-          <SheetDescription>
-            {formatRelativeDate(asset.createdAt)} · {humanSource(asset.source)}
-          </SheetDescription>
-        </SheetHeader>
-        <Separator />
-        {infoBody}
-        {deleteDialog}
-      </>
-    );
-  }
-
-  // Threads enabled — Tabs strip wraps the content. Info tab is scroll-its-own
-  // region (so the page doesn't have two scrollbars). Thread tab fills the
-  // remaining height with `flex-1 min-h-0` so the composer stays pinned.
+  // Tabs strip wraps the content. Info tab is scroll-its-own region (so the
+  // page doesn't have two scrollbars). Thread tab fills the remaining height
+  // with `flex-1 min-h-0` so the composer stays pinned.
   return (
     <>
       <SheetHeader className="px-5 pt-5 pb-3">
@@ -812,4 +784,409 @@ function formatRelativeDate(iso: string): string {
     month: "short",
     day: "numeric",
   });
+}
+
+// ---------------------------------------------------------------------------
+// CampaignPicker — typeahead Combobox over the asset's brand-scoped campaign
+// list. Selected values are uuids; chip labels are names. Includes an inline
+// "+ New campaign" affordance that opens a small create dialog scoped to the
+// asset's brand. Read /api/campaigns?brandId=<asset.brandId>; PATCH
+// /api/library/<id> with `{ campaigns: uuid[] }` (full replace).
+// ---------------------------------------------------------------------------
+
+interface CampaignOption {
+  id: string;
+  name: string;
+}
+
+function CampaignPicker({
+  asset,
+  onChange,
+}: {
+  asset: LibraryAsset;
+  onChange: (next: { id: string; name: string }[]) => void;
+}) {
+  const [options, setOptions] = useState<CampaignOption[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [pendingId, setPendingId] = useState<string | null>(null);
+
+  const brandId = asset.brandId;
+
+  // Lazy-load campaigns when the popover opens for the first time. Re-fetch
+  // when the asset's brand changes (e.g. user reassigned the brand elsewhere
+  // and reopens the panel).
+  useEffect(() => {
+    if (!open || !brandId) return;
+    let cancelled = false;
+    fetch(`/api/campaigns?brandId=${brandId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        const rows = Array.isArray(data.campaigns) ? data.campaigns : [];
+        setOptions(
+          rows.map((c: { id: string; name: string }) => ({
+            id: c.id,
+            name: c.name,
+          }))
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, brandId]);
+
+  const handleToggle = async (option: CampaignOption) => {
+    const exists = asset.campaigns.some((c) => c.id === option.id);
+    const next = exists
+      ? asset.campaigns.filter((c) => c.id !== option.id)
+      : [...asset.campaigns, { id: option.id, name: option.name }];
+    setPendingId(option.id);
+    const ok = await patchAsset(asset.id, {
+      campaigns: next.map((c) => c.id),
+    });
+    setPendingId(null);
+    if (!ok) {
+      toast.error("Couldn't update campaigns. Try again.");
+      return;
+    }
+    onChange(next);
+  };
+
+  const handleRemoveChip = async (campaignId: string) => {
+    const next = asset.campaigns.filter((c) => c.id !== campaignId);
+    setPendingId(campaignId);
+    const ok = await patchAsset(asset.id, {
+      campaigns: next.map((c) => c.id),
+    });
+    setPendingId(null);
+    if (!ok) {
+      toast.error("Couldn't remove campaign. Try again.");
+      return;
+    }
+    onChange(next);
+  };
+
+  const handleCreated = (campaign: CampaignOption) => {
+    setOptions((prev) => (prev ? [...prev, campaign] : [campaign]));
+    // Auto-attach the new campaign to this asset.
+    const next = [...asset.campaigns, { id: campaign.id, name: campaign.name }];
+    setPendingId(campaign.id);
+    patchAsset(asset.id, { campaigns: next.map((c) => c.id) }).then((ok) => {
+      setPendingId(null);
+      if (ok) onChange(next);
+    });
+  };
+
+  // Personal-brand assets (or anything without a brand) can't have campaigns.
+  // Render a quiet hint instead of a broken picker.
+  if (!brandId) {
+    return (
+      <div className="flex flex-col gap-2">
+        <Label>Campaigns</Label>
+        <p className="text-xs text-muted-foreground">
+          This asset isn&apos;t on a brand, so it can&apos;t be added to a
+          campaign.
+        </p>
+      </div>
+    );
+  }
+
+  const trimmed = search.trim().toLowerCase();
+  const filtered = (options ?? []).filter((c) =>
+    trimmed.length === 0 ? true : c.name.toLowerCase().includes(trimmed)
+  );
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Label>Campaigns</Label>
+
+      {asset.campaigns.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {asset.campaigns.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => handleRemoveChip(c.id)}
+              disabled={pendingId === c.id}
+              className={cn(
+                "group/chip inline-flex h-6 items-center gap-1 rounded-md bg-primary/10 px-2 text-xs font-medium text-primary ring-1 ring-primary/25 transition-colors",
+                "hover:bg-destructive/10 hover:text-destructive hover:ring-destructive/30",
+                "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+                pendingId === c.id && "opacity-60"
+              )}
+              aria-label={`Remove campaign ${c.name}`}
+            >
+              <Megaphone
+                className="size-3 text-current opacity-70"
+                aria-hidden
+              />
+              <span>{c.name}</span>
+              {pendingId === c.id ? (
+                <Loader2 className="size-3 animate-spin" aria-hidden />
+              ) : (
+                <X
+                  className="size-3 opacity-60 transition-opacity group-hover/chip:opacity-100"
+                  aria-hidden
+                />
+              )}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          Group assets by campaign to keep launches organized.
+        </p>
+      )}
+
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          render={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="justify-between gap-2"
+              aria-label="Add to campaign"
+            >
+              <span className="text-muted-foreground">Add to campaign…</span>
+              <ChevronDown
+                className="size-3.5 text-muted-foreground"
+                aria-hidden
+              />
+            </Button>
+          }
+        />
+        <PopoverContent align="start" className="w-72 p-0">
+          <div className="border-b border-border p-1">
+            <Input
+              autoFocus
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search campaigns…"
+              className="h-8 border-none bg-transparent px-2 text-sm shadow-none focus-visible:border-none focus-visible:ring-0"
+            />
+          </div>
+          <div className="max-h-64 overflow-y-auto p-1">
+            {options === null ? (
+              <div className="flex items-center justify-center py-4 text-xs text-muted-foreground">
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+              </div>
+            ) : filtered.length === 0 ? (
+              <p className="px-2 py-3 text-center text-xs text-muted-foreground">
+                {trimmed
+                  ? "No matches."
+                  : "No campaigns yet on this brand."}
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-0.5">
+                {filtered.map((c) => {
+                  const checked = asset.campaigns.some((x) => x.id === c.id);
+                  const busy = pendingId === c.id;
+                  return (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        onClick={() => handleToggle(c)}
+                        disabled={busy}
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+                          "hover:bg-accent",
+                          checked && "bg-primary/10 text-primary",
+                          busy && "opacity-60"
+                        )}
+                      >
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "flex size-4 items-center justify-center rounded-sm border",
+                            checked
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-foreground/25"
+                          )}
+                        >
+                          {checked && <Check className="size-3" aria-hidden />}
+                        </span>
+                        <Megaphone
+                          className="size-3.5 text-muted-foreground"
+                          aria-hidden
+                        />
+                        <span className="flex-1 truncate">{c.name}</span>
+                        {busy && (
+                          <Loader2
+                            className="size-3 animate-spin text-muted-foreground"
+                            aria-hidden
+                          />
+                        )}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+          <div className="border-t border-border p-1">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                setCreateOpen(true);
+              }}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                "hover:bg-accent text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Plus className="size-3.5" aria-hidden />
+              New campaign
+            </button>
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      <CreateCampaignDialog
+        open={createOpen}
+        brandId={brandId}
+        onOpenChange={setCreateOpen}
+        onCreated={handleCreated}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CreateCampaignDialog — minimal name + description form. Mirrors the brand
+// campaigns admin (`brands/[slug]/campaigns/campaigns-client.tsx`) but inline
+// so the user doesn't have to leave the asset detail. Brand-scoped via the
+// `brandId` prop so the create POST is always anchored to the asset's brand.
+// ---------------------------------------------------------------------------
+
+function CreateCampaignDialog({
+  open,
+  brandId,
+  onOpenChange,
+  onCreated,
+}: {
+  open: boolean;
+  brandId: string;
+  onOpenChange: (open: boolean) => void;
+  onCreated: (campaign: { id: string; name: string }) => void;
+}) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  // Reset on close — render-time pattern, no effect.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (!open) {
+      setName("");
+      setDescription("");
+    }
+  }
+
+  const handleCreate = async () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setCreating(true);
+    try {
+      const res = await fetch("/api/campaigns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brandId,
+          name: trimmed,
+          description: description.trim() || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(
+          data.error === "campaign_name_collision"
+            ? "A campaign with that name already exists."
+            : data.error === "forbidden"
+            ? "You don't have permission to create campaigns on this brand."
+            : "Couldn't create campaign. Try again."
+        );
+        return;
+      }
+      const data = (await res.json()) as {
+        campaign: { id: string; name: string };
+      };
+      toast.success("Campaign created");
+      onCreated({ id: data.campaign.id, name: data.campaign.name });
+      onOpenChange(false);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onOpenChange(false);
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>New campaign</DialogTitle>
+          <DialogDescription>
+            Group assets under a launch, drop, or initiative.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="new-campaign-name">Name</Label>
+            <Input
+              id="new-campaign-name"
+              autoFocus
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Spring sale 2026"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !creating && name.trim()) {
+                  e.preventDefault();
+                  handleCreate();
+                }
+              }}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="new-campaign-desc">Description (optional)</Label>
+            <Textarea
+              id="new-campaign-desc"
+              rows={2}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+            disabled={creating}
+          >
+            Cancel
+          </Button>
+          <Button onClick={handleCreate} disabled={creating || !name.trim()}>
+            {creating ? (
+              <>
+                <Loader2 className="animate-spin" aria-hidden />
+                Creating…
+              </>
+            ) : (
+              "Create"
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }

@@ -8,6 +8,8 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  Megaphone,
+  MessageSquareText,
 } from "lucide-react";
 import {
   Dialog,
@@ -19,9 +21,16 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
   ReviewFilmstrip,
   nextNonDecisionedIndex,
 } from "@/components/review-filmstrip";
+import { ThreadPanel } from "@/components/threads/thread-panel";
 
 export interface ReviewQueueItem {
   id: string;
@@ -34,6 +43,8 @@ export interface ReviewQueueItem {
   enhancedPrompt: string | null;
   model: string;
   brandKitOverridden: boolean;
+  /** Campaign tags on this asset. Empty array when the asset has no campaign. */
+  campaigns: { id: string; name: string }[];
   createdAt: string | Date;
   author: {
     id: string;
@@ -70,6 +81,15 @@ interface ReviewModalProps {
    * callers that haven't lifted decisions yet.
    */
   sessionDecisions?: Map<string, "approved" | "rejected">;
+  /**
+   * Viewer info threaded through to the Thread tab so the composer can render
+   * without re-resolving the session client-side. Mirrors `LibraryViewer`.
+   */
+  viewer: {
+    id: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+  };
 }
 
 const EMPTY_DECISIONS: Map<string, "approved" | "rejected"> = new Map();
@@ -83,12 +103,18 @@ export function ReviewModal({
   onClose,
   displayQueue,
   sessionDecisions,
+  viewer,
 }: ReviewModalProps) {
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState<"approve" | "reject" | null>(
     null
   );
   const noteRef = useRef<HTMLTextAreaElement | null>(null);
+  // Tabs state — `info` is the default. j/k/a/r shortcuts only fire on Info
+  // so typing in the thread composer doesn't trigger queue navigation. The
+  // existing `inField` guard would catch the textarea, but Tabs gating is
+  // belt-and-suspenders + works for the composer's contenteditable too.
+  const [activeTab, setActiveTab] = useState<string>("info");
   // The strip walks the snapshot (`displayQueue`) so decisioned tiles persist
   // even after `setQueue(filter)` removes them. The modal's active asset is
   // resolved against the SAME snapshot — `index` is a `displayQueue` index, not
@@ -110,7 +136,11 @@ export function ReviewModal({
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       const inField =
-        target?.tagName === "TEXTAREA" || target?.tagName === "INPUT";
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "INPUT" ||
+        // Composer is a contenteditable, not an input — guard explicitly so
+        // typing "j" in a thread reply doesn't skip to the next asset.
+        target?.isContentEditable === true;
       if (e.key === "Escape") {
         e.preventDefault();
         onClose();
@@ -121,6 +151,9 @@ export function ReviewModal({
       // and rejects the asset instead of refreshing the page.
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (inField) return;
+      // Thread tab is active — disable queue shortcuts entirely. The user is
+      // reading or composing a message; j/k/a/r should be plain text.
+      if (activeTab === "thread") return;
       if (e.key === "j") {
         e.preventDefault();
         // US3 / T020: skip decisioned tiles. Helper returns `index` unchanged
@@ -153,7 +186,7 @@ export function ReviewModal({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, index, stripItems.length, item?.id, decisions]);
+  }, [open, index, stripItems.length, item?.id, decisions, activeTab]);
 
   async function handleAction(action: "approve" | "reject") {
     if (!item || submitting) return;
@@ -274,8 +307,32 @@ export function ReviewModal({
               </div>
             </div>
 
+            <Tabs
+              value={activeTab}
+              onValueChange={(value) => {
+                if (typeof value === "string") setActiveTab(value);
+              }}
+              className="flex min-h-0 flex-1 flex-col gap-0"
+            >
+              <div className="border-b border-border/60 bg-background px-4 py-2">
+                <TabsList variant="line" className="w-full justify-start gap-3">
+                  <TabsTrigger value="info">Info</TabsTrigger>
+                  <TabsTrigger value="thread">
+                    <MessageSquareText aria-hidden />
+                    Thread
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+
+              <TabsContent
+                value="info"
+                className="flex min-h-0 flex-1 flex-col data-[hidden]:hidden"
+              >
             <div className="flex-1 space-y-3 overflow-y-auto p-4 text-sm">
               <Field label="Model">{item.model}</Field>
+              <Field label="Campaign">
+                <CampaignMetadata campaigns={item.campaigns} />
+              </Field>
               <Field label="Prompt">
                 <p className="whitespace-pre-wrap text-foreground">
                   {item.prompt}
@@ -349,6 +406,20 @@ export function ReviewModal({
                 j / k to walk · a approve · r reject · n note · Esc close
               </p>
             </div>
+              </TabsContent>
+
+              <TabsContent
+                value="thread"
+                className="flex min-h-0 flex-1 flex-col data-[hidden]:hidden"
+              >
+                <ThreadPanel
+                  // Re-mount on asset change so the SSE stream resets cleanly.
+                  key={item.id}
+                  assetId={item.id}
+                  viewer={viewer}
+                />
+              </TabsContent>
+            </Tabs>
           </div>
         </div>
       </DialogContent>
@@ -369,6 +440,43 @@ function Field({
         {label}
       </div>
       <div>{children}</div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// CampaignMetadata — read-only display of an asset's campaign tags. Always
+// renders something: chips when the asset is tagged, em-dash when it isn't.
+// Drives the same affordance from the modal, the gallery tile, and the
+// filmstrip thumbnail.
+// ---------------------------------------------------------------------------
+export function CampaignMetadata({
+  campaigns,
+}: {
+  campaigns: { id: string; name: string }[];
+}) {
+  if (campaigns.length === 0) {
+    return (
+      <span
+        className="inline-flex items-center gap-1.5 text-muted-foreground"
+        aria-label="No campaign"
+      >
+        <Megaphone className="size-3.5 opacity-60" aria-hidden />
+        <span aria-hidden>—</span>
+      </span>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {campaigns.map((c) => (
+        <span
+          key={c.id}
+          className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-xs font-medium text-primary ring-1 ring-primary/25"
+        >
+          <Megaphone className="size-3" aria-hidden />
+          {c.name}
+        </span>
+      ))}
     </div>
   );
 }

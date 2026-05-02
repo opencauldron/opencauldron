@@ -22,14 +22,6 @@ const envSchema = z.object({
     .default("false")
     .transform((v) => v === "true"),
 
-  // Asset Message Threads — gates every thread API + the UI surface. Ship
-  // dark, flip to "true" once the migration is applied + smoke-tested. Every
-  // thread route MUST 404 when this is false (the surface stays invisible).
-  THREADS_ENABLED: z
-    .union([z.literal("true"), z.literal("false")])
-    .default("false")
-    .transform((v) => v === "true"),
-
   // Dev-only login shortcut for automated browser QA. Honored ONLY when
   // BOTH `NODE_ENV !== "production"` AND `DEV_LOGIN_ENABLED === "true"` —
   // see `src/app/api/dev-login/route.ts` for the exact gate. The flag is

@@ -4,8 +4,7 @@
  * GET   ?cursor=&since=&limit=  Older-page cursor or resync-since fetch.
  * POST  body: { body, parentMessageId?, attachments?, clientTempId? }
  *
- * Both endpoints gate on `THREADS_ENABLED` and workspace membership for the
- * thread's asset.
+ * Both endpoints gate on workspace membership for the thread's asset.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -14,7 +13,6 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withThreadTransaction } from "@/lib/db/tx";
-import { env } from "@/lib/env";
 import {
   assetThreads,
   messageAttachments,
@@ -49,10 +47,6 @@ const MAX_LIMIT = 100;
 const MAX_BODY_LEN = 4000;
 const MAX_ATTACHMENTS = 10;
 
-function flagOff(): NextResponse {
-  return NextResponse.json({ error: "Not found" }, { status: 404 });
-}
-
 function decodeCursor(raw: string | null): { createdAt: Date; id: string } | null {
   if (!raw) return null;
   const sep = raw.lastIndexOf("__");
@@ -79,7 +73,6 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!env.THREADS_ENABLED) return flagOff();
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -198,7 +191,6 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!env.THREADS_ENABLED) return flagOff();
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

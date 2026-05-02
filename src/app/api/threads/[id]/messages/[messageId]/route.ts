@@ -16,7 +16,6 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { withThreadTransaction } from "@/lib/db/tx";
-import { env } from "@/lib/env";
 import {
   messageMentions,
   messages,
@@ -44,10 +43,6 @@ export const runtime = "nodejs";
 
 const MAX_BODY_LEN = 4000;
 
-function flagOff(): NextResponse {
-  return NextResponse.json({ error: "Not found" }, { status: 404 });
-}
-
 const patchSchema = z.object({
   body: z.string().min(1).max(MAX_BODY_LEN),
 });
@@ -60,7 +55,6 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string; messageId: string }> }
 ) {
-  if (!env.THREADS_ENABLED) return flagOff();
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -239,7 +233,6 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string; messageId: string }> }
 ) {
-  if (!env.THREADS_ENABLED) return flagOff();
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

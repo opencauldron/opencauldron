@@ -25,17 +25,12 @@ import { randomUUID } from "node:crypto";
 
 export const runtime = "nodejs";
 
-function flagOff(): NextResponse {
-  return NextResponse.json({ error: "Not found" }, { status: 404 });
-}
-
 export async function DELETE(
   _req: NextRequest,
   {
     params,
   }: { params: Promise<{ id: string; messageId: string; emoji: string }> }
 ) {
-  if (!env.THREADS_ENABLED) return flagOff();
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
