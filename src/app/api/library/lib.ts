@@ -49,7 +49,12 @@ export interface LibraryItem {
     email: string | null;
   } | null;
   tags: string[];
-  campaigns: string[];
+  /**
+   * Brand campaigns this asset belongs to. Returned as `{id, name}` pairs so
+   * the client can render names but PATCH back uuids (the API contract for
+   * `campaigns` on `/api/library/[id]` PATCH is uuid-only).
+   */
+  campaigns: { id: string; name: string }[];
   embeddedAt: string | null;
   createdAt: string;
   // WebP display variant + dual-format download fields. Hydrated for every
@@ -93,13 +98,21 @@ export interface AssetJoinRow {
   originalMimeType: string | null;
 }
 
+export type CampaignRef = { id: string; name: string };
+
 /**
  * Fan out the per-asset tag and campaign lookups in a single round-trip per
  * relation, then key them by assetId for O(1) merges.
+ *
+ * Campaigns return as `{id, name}` pairs because the client needs both: the
+ * name for chip labels and the uuid for the PATCH wire format.
  */
 export async function loadTagsAndCampaigns(
   assetIds: string[]
-): Promise<{ tags: Map<string, string[]>; campaigns: Map<string, string[]> }> {
+): Promise<{
+  tags: Map<string, string[]>;
+  campaigns: Map<string, CampaignRef[]>;
+}> {
   if (assetIds.length === 0) {
     return { tags: new Map(), campaigns: new Map() };
   }
@@ -112,6 +125,7 @@ export async function loadTagsAndCampaigns(
     db
       .select({
         assetId: assetCampaigns.assetId,
+        campaignId: campaignsTbl.id,
         campaignName: campaignsTbl.name,
       })
       .from(assetCampaigns)
@@ -126,10 +140,10 @@ export async function loadTagsAndCampaigns(
     tags.set(r.assetId, list);
   }
 
-  const campaigns = new Map<string, string[]>();
+  const campaigns = new Map<string, CampaignRef[]>();
   for (const r of campaignRows) {
     const list = campaigns.get(r.assetId) ?? [];
-    list.push(r.campaignName);
+    list.push({ id: r.campaignId, name: r.campaignName });
     campaigns.set(r.assetId, list);
   }
 
@@ -140,7 +154,7 @@ export async function loadTagsAndCampaigns(
 export async function hydrateLibraryItem(
   row: AssetJoinRow,
   tags: string[],
-  campaigns: string[]
+  campaigns: CampaignRef[]
 ): Promise<LibraryItem> {
   // Resolve all storage URLs in parallel — saves a round-trip when both
   // thumbnail and webp keys are present.

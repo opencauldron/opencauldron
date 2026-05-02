@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { generations, assets } from "@/lib/db/schema";
+import { assetCampaigns, assets, generations } from "@/lib/db/schema";
 import { getProvider } from "@/providers/registry";
 import { downloadAndUploadVideo } from "@/lib/storage";
 import { eq, and } from "drizzle-orm";
@@ -176,6 +176,25 @@ export async function GET(
           durationMs,
         })
         .where(eq(generations.id, id));
+
+      // Pre-tag with the campaign that was selected at submit time (stashed
+      // in `generation.parameters.campaignId` by /api/generate). Best-effort
+      // — failures don't unwind the asset row.
+      const stashedCampaignId =
+        ((generation.parameters as Record<string, unknown>)?.campaignId as
+          | string
+          | null
+          | undefined) ?? null;
+      if (stashedCampaignId) {
+        try {
+          await db
+            .insert(assetCampaigns)
+            .values({ assetId: asset.id, campaignId: stashedCampaignId })
+            .onConflictDoNothing();
+        } catch (err) {
+          console.error("[generate.status] campaign tag insert failed:", err);
+        }
+      }
 
       return NextResponse.json({
         generationId: id,

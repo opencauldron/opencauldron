@@ -1,7 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { brands, generations, assets, brandMembers, users } from "@/lib/db/schema";
+import {
+  assetCampaigns,
+  assets,
+  brands,
+  brandMembers,
+  campaigns as campaignsTable,
+  generations,
+  users,
+} from "@/lib/db/schema";
 import { getProvider } from "@/providers/registry";
 import {
   uploadAsset,
@@ -96,6 +104,10 @@ const generateSchema = z.object({
   // either as the literal `"personal"` sentinel or omitted.
   brandId: z.union([z.string().uuid(), z.literal("personal")]).optional(),
   brandKitOverride: z.boolean().optional(),
+  // Optional campaign tag — server validates that the campaign belongs to
+  // the resolved brand and bulk-inserts into asset_campaigns after the asset
+  // row exists. Personal brands silently ignore this field.
+  campaignId: z.string().uuid().optional(),
 });
 
 /**
@@ -165,6 +177,7 @@ export async function POST(req: NextRequest) {
     renderingSpeed, personGeneration, watermark, promptEnhance, promptOptimizer, loop,
     duration, imageInput, audioEnabled, cameraControl,
     loras, nsfwEnabled, brandId: brandIdHint, brandKitOverride,
+    campaignId,
   } = parsed.data;
 
   // ---- Workspace + brand resolution (FR-004 / FR-007) -----------------
@@ -198,6 +211,30 @@ export async function POST(req: NextRequest) {
 
   if (!canCreateAsset(ctx, brandCtx)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  // Resolve the campaign tag (optional). Must belong to the same brand we
+  // resolved above. Personal brands silently drop the field — we don't expose
+  // campaigns there, so accepting a value would be confusing.
+  let resolvedCampaignId: string | null = null;
+  if (campaignId && !brandCtx.isPersonal) {
+    const [c] = await db
+      .select({ id: campaignsTable.id })
+      .from(campaignsTable)
+      .where(
+        and(
+          eq(campaignsTable.id, campaignId),
+          eq(campaignsTable.brandId, brandId)
+        )
+      )
+      .limit(1);
+    if (!c) {
+      return NextResponse.json(
+        { error: "campaign_not_found_for_brand" },
+        { status: 400 }
+      );
+    }
+    resolvedCampaignId = c.id;
   }
 
   // Check rate limit
@@ -305,6 +342,9 @@ export async function POST(req: NextRequest) {
         loras, nsfwEnabled,
         brandId,
         brandKitOverridden: kitResult.brandKitOverridden,
+        // Stashed so the async video-status route can pick it up after the
+        // job completes (it resolves the same brand from `parameters.brandId`).
+        campaignId: resolvedCampaignId,
       },
       status: "processing",
       costEstimate,
@@ -523,6 +563,20 @@ export async function POST(req: NextRequest) {
         durationMs,
       })
       .where(eq(generations.id, generation.id));
+
+    // Pre-tag the new asset with the optional campaign. Best-effort — a
+    // failure here doesn't unwind the asset row, the user can attach manually
+    // from the Library detail panel.
+    if (resolvedCampaignId) {
+      try {
+        await db
+          .insert(assetCampaigns)
+          .values({ assetId: asset.id, campaignId: resolvedCampaignId })
+          .onConflictDoNothing();
+      } catch (err) {
+        console.error("[generate] campaign tag insert failed:", err);
+      }
+    }
 
     // Award XP and check badges after successful generation
     const xpResult = await awardXP(userId, xpReward, "generation", `Generated ${model}`, generation.id);

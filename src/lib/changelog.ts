@@ -10,7 +10,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: "Threads now everywhere you view an asset",
     bullets: [
       "Open the Thread tab from the gallery, the brand gallery, and the review modal — not just the library",
-      "In the review modal the Thread tab sits next to Info; j/k/a/r shortcuts pause while you're reading or composing a message so a stray keystroke can't approve, reject, or skip the asset",
+      "In the review modal the Thread tab sits next to Info — keyboard shortcuts pause while you're reading or composing, so typing a reply won't accidentally approve, reject, or skip the asset",
       "Anyone in the workspace who can see the asset can join the conversation — same permissions as before, just more places to drop in",
     ],
   },

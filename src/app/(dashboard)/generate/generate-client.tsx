@@ -52,6 +52,8 @@ import {
   Copy,
   FlaskConical,
   ImagePlus,
+  Megaphone,
+  Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BrandSelector } from "@/components/brand-selector";
@@ -263,6 +265,20 @@ export function GenerateClient({
   // FR-015 override toggle. Resets when active brand changes.
   const [brandKitOverride, setBrandKitOverride] = useState<boolean>(false);
 
+  // Campaign tagging. Selecting a campaign here pre-tags every asset created
+  // by this generation (POST /api/generate then POST /api/generate/campaign-
+  // tag). Default empty — the user explicitly opts in. Loaded lazily when the
+  // active brand is non-Personal; Personal brands don't support campaigns.
+  const [campaignOptions, setCampaignOptions] = useState<
+    { id: string; name: string }[]
+  >([]);
+  const [activeCampaignId, setActiveCampaignId] = useState<string | null>(null);
+  // Deep-link buffer for `?campaign=<id>`. We can't commit it until brands +
+  // campaign options have loaded; the resolver effect below waits for both.
+  const [pendingCampaignId, setPendingCampaignId] = useState<string | null>(
+    null
+  );
+
   useEffect(() => {
     fetch("/api/brands")
       .then((r) => r.json())
@@ -279,6 +295,100 @@ export function GenerateClient({
       })
       .catch(() => {});
   }, []);
+
+  // Resolve `?campaign=<id>` deep-links: fetch the campaign, switch the
+  // active brand to the campaign's brand if needed, and remember the id so
+  // the next campaign-options load picks it up. Runs once per pending id.
+  useEffect(() => {
+    if (!pendingCampaignId) return;
+    if (brands.length === 0) return; // wait for brand list
+    let cancelled = false;
+    fetch(`/api/campaigns/${pendingCampaignId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (data: { campaign?: { id: string; brandId: string } } | null) => {
+          // Cancellation is benign — a later effect run will refetch. Only
+          // clear `pendingCampaignId` when we have a definitive answer (404
+          // or shape miss); otherwise leave it set so the next run picks up.
+          if (cancelled) return;
+          if (!data?.campaign) {
+            setPendingCampaignId(null);
+            return;
+          }
+          if (activeBrandId !== data.campaign.brandId) {
+            setActiveBrandId(data.campaign.brandId);
+          } else {
+            // Brand already matches — try to commit immediately if the option
+            // is loaded; otherwise wait for the load.
+            const opt = campaignOptions.find(
+              (c) => c.id === data.campaign!.id
+            );
+            if (opt) {
+              setActiveCampaignId(opt.id);
+              setPendingCampaignId(null);
+            }
+          }
+        }
+      )
+      .catch(() => {
+        if (!cancelled) setPendingCampaignId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingCampaignId, brands, activeBrandId, campaignOptions]);
+
+  // Load brand-scoped campaign options whenever the active brand changes.
+  // Personal brands skip the call (campaigns are gated to non-Personal brands
+  // server-side). The selected campaign clears on every brand swap so we
+  // never carry a campaign across brands.
+  useEffect(() => {
+    setActiveCampaignId(null);
+    if (!activeBrandId || activeBrandId === "personal") {
+      setCampaignOptions([]);
+      return;
+    }
+    const ab = brands.find((b) => b.id === activeBrandId);
+    if (ab?.isPersonal) {
+      setCampaignOptions([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/campaigns?brandId=${activeBrandId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        const rows = Array.isArray(data.campaigns) ? data.campaigns : [];
+        const next = rows.map((c: { id: string; name: string }) => ({
+          id: c.id,
+          name: c.name,
+        }));
+        setCampaignOptions(next);
+        // If a `?campaign=<id>` deep-link is pending and matches one of
+        // these options, commit it now. We read pendingCampaignId via the
+        // setter to avoid coupling this fetch's invalidation to the pending
+        // state — keeping `pendingCampaignId` out of the deps prevents the
+        // "clear pending → re-run brand effect → wipe activeCampaignId"
+        // race.
+        setPendingCampaignId((pending) => {
+          if (!pending) return pending;
+          const opt = next.find(
+            (c: { id: string; name: string }) => c.id === pending
+          );
+          if (opt) {
+            setActiveCampaignId(opt.id);
+            return null;
+          }
+          return pending;
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setCampaignOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeBrandId, brands]);
 
   // Pull the active brand's kit when it changes. Personal brands and the
   // null state are no-ops — there's nothing to inject.
@@ -385,7 +495,15 @@ export function GenerateClient({
     if (focusParam === "imageInput" && !imgInput) {
       handleRefPickerOpen();
     }
-  }, []);
+
+    // `?campaign=<id>` deep-links from the campaign detail page's "Generate
+    // for campaign" CTA. The brand is implied by the campaign — we resolve
+    // it from /api/campaigns/<id> indirectly via the brand-load effect: set
+    // the pending id here, and a follow-up effect (below) waits for brands +
+    // campaign options to be loaded then commits the selection.
+    const campaignParam = params.get("campaign");
+    if (campaignParam) setPendingCampaignId(campaignParam);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reference picker state
   const [showRefPicker, setShowRefPicker] = useState(false);
@@ -742,6 +860,13 @@ export function GenerateClient({
         brandId: activeBrandId ?? "personal",
       };
 
+      // Campaign tag — pre-attaches the resulting asset to a campaign in the
+      // active brand. Server bulk-inserts into asset_campaigns after the
+      // asset row exists. Skipped on Personal brands (UI gates the picker).
+      if (activeCampaignId) {
+        body.campaignId = activeCampaignId;
+      }
+
       // FR-015 — only send the override flag when it's actually on AND there
       // was something to override. Saves the server an unnecessary kit lookup.
       if (brandKitOverride && hasActiveKit) {
@@ -1050,6 +1175,36 @@ export function GenerateClient({
                 brands={brands}
                 value={activeBrandId}
                 onChange={setActiveBrandId}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Campaign tagging — only meaningful for non-Personal brands. The
+            selected campaign pre-tags every asset created by this generation
+            (M2M insert into asset_campaigns happens server-side). Default
+            empty so the user explicitly opts in. */}
+        {activeBrand && !activeBrand.isPersonal && (
+          <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-card/50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                Tag with campaign
+              </span>
+              <span className="text-xs text-muted-foreground/80">
+                Optional. Pre-tags everything you generate so it lands in the
+                right campaign view.
+              </span>
+            </div>
+            <div className="w-full sm:w-[280px]">
+              <GenerateCampaignPicker
+                brandId={activeBrandId}
+                campaigns={campaignOptions}
+                value={activeCampaignId}
+                onChange={setActiveCampaignId}
+                onCreated={(c) => {
+                  setCampaignOptions((prev) => [...prev, c]);
+                  setActiveCampaignId(c.id);
+                }}
               />
             </div>
           </div>
@@ -2497,5 +2652,260 @@ function KitField({ label, value }: { label: string; value: string }) {
         {value}
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GenerateCampaignPicker — typeahead Combobox for the brand-scoped campaign
+// list. Single-select. Supports an inline "+ New campaign" affordance that
+// POSTs to /api/campaigns and auto-selects the result.
+// ---------------------------------------------------------------------------
+
+interface GenerateCampaignPickerProps {
+  brandId: string | null;
+  campaigns: { id: string; name: string }[];
+  value: string | null;
+  onChange: (next: string | null) => void;
+  onCreated: (campaign: { id: string; name: string }) => void;
+}
+
+function GenerateCampaignPicker({
+  brandId,
+  campaigns,
+  value,
+  onChange,
+  onCreated,
+}: GenerateCampaignPickerProps) {
+  const [open, setOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [createName, setCreateName] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const selected = campaigns.find((c) => c.id === value) ?? null;
+  const trimmed = search.trim().toLowerCase();
+  const filtered = campaigns.filter((c) =>
+    trimmed.length === 0 ? true : c.name.toLowerCase().includes(trimmed)
+  );
+
+  const handleCreate = async () => {
+    if (!brandId) return;
+    const name = createName.trim();
+    if (!name) return;
+    setCreating(true);
+    try {
+      const res = await fetch("/api/campaigns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brandId, name }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(
+          data.error === "campaign_name_collision"
+            ? "A campaign with that name already exists."
+            : data.error === "forbidden"
+            ? "You don't have permission to create campaigns on this brand."
+            : "Couldn't create campaign. Try again."
+        );
+        return;
+      }
+      const data = (await res.json()) as {
+        campaign: { id: string; name: string };
+      };
+      toast.success("Campaign created");
+      onCreated({ id: data.campaign.id, name: data.campaign.name });
+      setCreateName("");
+      setCreateOpen(false);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          render={
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full justify-between gap-2"
+              aria-label="Tag with campaign"
+            >
+              <span className="flex items-center gap-2 truncate">
+                <Megaphone
+                  className="size-3.5 shrink-0 text-muted-foreground"
+                  aria-hidden
+                />
+                <span className="truncate">
+                  {selected ? selected.name : (
+                    <span className="text-muted-foreground">No campaign</span>
+                  )}
+                </span>
+              </span>
+              <ChevronDown
+                className="size-3.5 shrink-0 text-muted-foreground"
+                aria-hidden
+              />
+            </Button>
+          }
+        />
+        <PopoverContent align="end" className="w-72 p-0">
+          <div className="border-b border-border p-1">
+            <Input
+              autoFocus
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search campaigns…"
+              className="h-8 border-none bg-transparent px-2 text-sm shadow-none focus-visible:border-none focus-visible:ring-0"
+            />
+          </div>
+          <div className="max-h-64 overflow-y-auto p-1">
+            {/* Always offer "no campaign" so the user can clear the tag. */}
+            <button
+              type="button"
+              onClick={() => {
+                onChange(null);
+                setOpen(false);
+              }}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+                "hover:bg-accent",
+                value === null && "bg-primary/10 text-primary"
+              )}
+            >
+              <span
+                aria-hidden
+                className={cn(
+                  "flex size-4 items-center justify-center rounded-sm border",
+                  value === null
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-foreground/25"
+                )}
+              >
+                {value === null && <Check className="size-3" aria-hidden />}
+              </span>
+              <span className="text-muted-foreground">No campaign</span>
+            </button>
+
+            {filtered.length === 0 ? (
+              <p className="px-2 py-3 text-center text-xs text-muted-foreground">
+                {trimmed
+                  ? "No matches."
+                  : "No campaigns yet on this brand."}
+              </p>
+            ) : (
+              filtered.map((c) => {
+                const checked = value === c.id;
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => {
+                      onChange(checked ? null : c.id);
+                      setOpen(false);
+                    }}
+                    className={cn(
+                      "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+                      "hover:bg-accent",
+                      checked && "bg-primary/10 text-primary"
+                    )}
+                  >
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "flex size-4 items-center justify-center rounded-sm border",
+                        checked
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-foreground/25"
+                      )}
+                    >
+                      {checked && <Check className="size-3" aria-hidden />}
+                    </span>
+                    <Megaphone
+                      className="size-3.5 text-muted-foreground"
+                      aria-hidden
+                    />
+                    <span className="flex-1 truncate">{c.name}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+          <div className="border-t border-border p-1">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                setCreateOpen(true);
+              }}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                "hover:bg-accent text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <Plus className="size-3.5" aria-hidden />
+              New campaign
+            </button>
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      <Dialog
+        open={createOpen}
+        onOpenChange={(next) => {
+          if (!next) setCreateOpen(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>New campaign</DialogTitle>
+            <DialogDescription>
+              Group assets under a launch, drop, or initiative.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="generate-campaign-name">Name</Label>
+            <Input
+              id="generate-campaign-name"
+              autoFocus
+              value={createName}
+              onChange={(e) => setCreateName(e.target.value)}
+              placeholder="Spring sale 2026"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !creating && createName.trim()) {
+                  e.preventDefault();
+                  handleCreate();
+                }
+              }}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setCreateOpen(false)}
+              disabled={creating}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreate}
+              disabled={creating || !createName.trim()}
+            >
+              {creating ? (
+                <>
+                  <Loader2 className="animate-spin" aria-hidden />
+                  Creating…
+                </>
+              ) : (
+                "Create"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

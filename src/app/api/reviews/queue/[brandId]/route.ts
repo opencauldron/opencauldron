@@ -6,10 +6,15 @@
  * owner/admin inherits). Personal brands are not reviewable (FR-006b).
  */
 import { NextRequest, NextResponse } from "next/server";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { assets, users } from "@/lib/db/schema";
+import {
+  assetCampaigns,
+  assets,
+  campaigns as campaignsTable,
+  users,
+} from "@/lib/db/schema";
 import { getAssetUrl } from "@/lib/storage";
 import {
   isBrandManager,
@@ -68,6 +73,33 @@ export async function GET(
     .where(and(eq(assets.brandId, brandId), eq(assets.status, "in_review")))
     .orderBy(asc(assets.createdAt));
 
+  // Fan-out campaign lookup so the review surfaces can show the campaign tag
+  // alongside brand/model/date. Single round-trip keyed by assetId.
+  const assetIds = rows.map((r) => r.id);
+  const campaignRows = assetIds.length
+    ? await db
+        .select({
+          assetId: assetCampaigns.assetId,
+          campaignId: campaignsTable.id,
+          campaignName: campaignsTable.name,
+        })
+        .from(assetCampaigns)
+        .innerJoin(
+          campaignsTable,
+          eq(campaignsTable.id, assetCampaigns.campaignId)
+        )
+        .where(inArray(assetCampaigns.assetId, assetIds))
+    : [];
+  const campaignsByAssetId = new Map<
+    string,
+    { id: string; name: string }[]
+  >();
+  for (const r of campaignRows) {
+    const list = campaignsByAssetId.get(r.assetId) ?? [];
+    list.push({ id: r.campaignId, name: r.campaignName });
+    campaignsByAssetId.set(r.assetId, list);
+  }
+
   const enriched = await Promise.all(
     rows.map(async (a) => {
       const url = await getAssetUrl(a.r2Key);
@@ -90,6 +122,7 @@ export async function GET(
         duration: a.duration,
         hasAudio: a.hasAudio,
         brandKitOverridden: a.brandKitOverridden,
+        campaigns: campaignsByAssetId.get(a.id) ?? [],
         createdAt: a.createdAt,
         author: {
           id: a.userId,
