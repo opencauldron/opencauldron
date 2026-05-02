@@ -242,10 +242,15 @@ export const campaigns = pgTable(
     endsAt: timestamp("ends_at"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at").defaultNow().notNull(),
+    visibility: text("visibility", { enum: ["private", "public"] })
+      .notNull()
+      .default("private"),
+    publicSlug: text("public_slug"),
   },
   (t) => [
     uniqueIndex("campaigns_brand_name_unique").on(t.brandId, t.name),
     index("campaigns_brand_idx").on(t.brandId),
+    uniqueIndex("campaigns_public_slug_unique").on(t.publicSlug),
   ]
 );
 
