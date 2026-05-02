@@ -8,9 +8,37 @@ import {
   users,
   assets,
   brands,
+  workspaceMembers,
 } from "@/lib/db/schema";
-import { eq, and, sql, gte, isNotNull } from "drizzle-orm";
+import { eq, and, sql, gte, isNotNull, desc } from "drizzle-orm";
 import type { ModelId } from "@/types";
+import { emitActivity } from "@/lib/activity";
+
+/**
+ * Resolve the workspace to attribute a workspace-scoped XP/badge event to.
+ * Callers in a request context already have the workspace and SHOULD pass
+ * it (cheaper, correct). When omitted we fall back to the user's
+ * most-recently-created workspace_member row — matches the bell-feed scope
+ * used elsewhere when no cookie is in scope.
+ *
+ * Returns `null` if the user has no workspace memberships at all (rare;
+ * pre-bootstrap accounts only). Callers MUST swallow that case — emitting
+ * a workspace-scoped activity row without a workspace_id would violate the
+ * NOT NULL constraint and the spec.
+ */
+async function resolveActivityWorkspaceId(
+  userId: string,
+  workspaceId?: string
+): Promise<string | null> {
+  if (workspaceId) return workspaceId;
+  const [row] = await db
+    .select({ workspaceId: workspaceMembers.workspaceId })
+    .from(workspaceMembers)
+    .where(eq(workspaceMembers.userId, userId))
+    .orderBy(desc(workspaceMembers.createdAt))
+    .limit(1);
+  return row?.workspaceId ?? null;
+}
 
 // ============================================================
 // XP Levels
@@ -123,7 +151,8 @@ export async function awardXP(
   amount: number,
   type: "generation" | "badge_reward" | "admin_grant",
   description: string,
-  generationId?: string
+  generationId?: string,
+  workspaceId?: string
 ): Promise<{ newXP: number; newLevel: number; leveledUp: boolean }> {
   const record = await getUserXP(userId);
   const newXP = record.xp + amount;
@@ -142,6 +171,27 @@ export async function awardXP(
     description,
     generationId: generationId ?? null,
   });
+
+  // Activity feed (US2 / FR-002). `member.leveled_up` is workspace-scoped:
+  // every member sees their teammates climb the curve. Visibility is the
+  // caller-passed `workspace`; brand_id stays null (level-ups aren't
+  // brand-bound). If the user has no workspace_members row we silently skip
+  // emission rather than raise — pre-bootstrap accounts are out of scope.
+  if (leveledUp) {
+    const wsId = await resolveActivityWorkspaceId(userId, workspaceId);
+    if (wsId) {
+      await emitActivity(db, {
+        actorId: userId,
+        verb: "member.leveled_up",
+        objectType: "user",
+        objectId: userId,
+        workspaceId: wsId,
+        brandId: null,
+        visibility: "workspace",
+        metadata: { level: newLevel, title: getLevelTitle(newLevel) },
+      });
+    }
+  }
 
   return { newXP, newLevel, leveledUp };
 }
@@ -162,7 +212,8 @@ interface BadgeCheckResult {
 }
 
 export async function checkAndAwardBadges(
-  userId: string
+  userId: string,
+  workspaceId?: string
 ): Promise<BadgeCheckResult[]> {
   const existingBadges = await db
     .select({ badgeId: userBadges.badgeId })
@@ -186,35 +237,35 @@ export async function checkAndAwardBadges(
 
   // Milestones
   if (!earned.has("first-brew") && genStats.totalCount >= 1) {
-    newlyEarned.push(await awardBadge(userId, "first-brew"));
+    newlyEarned.push(await awardBadge(userId, "first-brew", workspaceId));
   }
   if (!earned.has("centaur") && genStats.totalCount >= 100) {
-    newlyEarned.push(await awardBadge(userId, "centaur"));
+    newlyEarned.push(await awardBadge(userId, "centaur", workspaceId));
   }
   if (!earned.has("hydra") && genStats.totalCount >= 1000) {
-    newlyEarned.push(await awardBadge(userId, "hydra"));
+    newlyEarned.push(await awardBadge(userId, "hydra", workspaceId));
   }
 
   // Model exploration
   if (!earned.has("ranger") && genStats.distinctImageModels >= 5) {
-    newlyEarned.push(await awardBadge(userId, "ranger"));
+    newlyEarned.push(await awardBadge(userId, "ranger", workspaceId));
   }
 
   // Video
   if (!earned.has("illusionist") && genStats.videoCount >= 1) {
-    newlyEarned.push(await awardBadge(userId, "illusionist"));
+    newlyEarned.push(await awardBadge(userId, "illusionist", workspaceId));
   }
   if (!earned.has("conjurer") && genStats.videoCount >= 50) {
-    newlyEarned.push(await awardBadge(userId, "conjurer"));
+    newlyEarned.push(await awardBadge(userId, "conjurer", workspaceId));
   }
 
   // Streaks
   const streak = await calculateStreak(userId);
   if (!earned.has("kindling") && streak >= 7) {
-    newlyEarned.push(await awardBadge(userId, "kindling"));
+    newlyEarned.push(await awardBadge(userId, "kindling", workspaceId));
   }
   if (!earned.has("inferno") && streak >= 30) {
-    newlyEarned.push(await awardBadge(userId, "inferno"));
+    newlyEarned.push(await awardBadge(userId, "inferno", workspaceId));
   }
 
   // Brand tagging — assets attached to a non-Personal brand. The asset_brands
@@ -235,7 +286,7 @@ export async function checkAndAwardBadges(
     );
 
   if (!earned.has("sigil") && brandStats.taggedCount >= 50) {
-    newlyEarned.push(await awardBadge(userId, "sigil"));
+    newlyEarned.push(await awardBadge(userId, "sigil", workspaceId));
   }
 
   return newlyEarned;
@@ -243,7 +294,8 @@ export async function checkAndAwardBadges(
 
 async function awardBadge(
   userId: string,
-  badgeId: string
+  badgeId: string,
+  workspaceId?: string
 ): Promise<BadgeCheckResult> {
   const [badge] = await db
     .select()
@@ -256,12 +308,34 @@ async function awardBadge(
     .values({ userId, badgeId })
     .onConflictDoNothing();
 
+  // Activity feed (US2 / FR-002). `member.earned_feat` is workspace-scoped:
+  // every member sees their teammates' wins. Resolved workspace_id falls
+  // back to the user's most-recently-created membership when the caller
+  // didn't pass one (admin-grant + topup paths).
+  const wsId = await resolveActivityWorkspaceId(userId, workspaceId);
+  if (wsId) {
+    await emitActivity(db, {
+      actorId: userId,
+      verb: "member.earned_feat",
+      objectType: "feat",
+      objectId: badge.id,
+      workspaceId: wsId,
+      brandId: null,
+      visibility: "workspace",
+      metadata: { feat: badge.id, name: badge.name, icon: badge.icon },
+    });
+  }
+
   if (badge.xpReward > 0) {
+    // Propagate workspaceId so the recursive `awardXP` can attribute a
+    // potential `member.leveled_up` to the same workspace.
     await awardXP(
       userId,
       badge.xpReward,
       "badge_reward",
-      `Badge earned: ${badge.name} (+${badge.xpReward} XP)`
+      `Badge earned: ${badge.name} (+${badge.xpReward} XP)`,
+      undefined,
+      wsId ?? undefined
     );
   }
 
@@ -275,9 +349,10 @@ async function awardBadge(
 
 export async function adminGrantBadge(
   userId: string,
-  badgeId: string
+  badgeId: string,
+  workspaceId?: string
 ): Promise<BadgeCheckResult> {
-  return awardBadge(userId, badgeId);
+  return awardBadge(userId, badgeId, workspaceId);
 }
 
 async function calculateStreak(userId: string): Promise<number> {

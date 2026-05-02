@@ -18,6 +18,7 @@ import {
   displayWebpKey,
 } from "@/lib/storage";
 import { getXPReward, awardXP, checkAndAwardBadges } from "@/lib/xp";
+import { emitActivity } from "@/lib/activity";
 import { references } from "@/lib/db/schema";
 import { eq, and, gte, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -578,9 +579,36 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Activity feed (US2 / FR-002). Two events fire: `generation.created` for
+    // the new asset and `generation.completed` for the generation row.
+    // Visibility mirrors the asset's brand: private on Personal, brand on a
+    // managed brand. Both rows share `workspace_id` + `brand_id` so the feed
+    // tabs render them coherently.
+    const visibility = brandCtx.isPersonal ? "private" : "brand";
+    await emitActivity(db, {
+      actorId: userId,
+      verb: "generation.created",
+      objectType: "asset",
+      objectId: asset.id,
+      workspaceId: workspace.id,
+      brandId,
+      visibility,
+      metadata: { source: "generated", mediaType: "image", model, provider: provider.provider },
+    });
+    await emitActivity(db, {
+      actorId: userId,
+      verb: "generation.completed",
+      objectType: "generation",
+      objectId: generation.id,
+      workspaceId: workspace.id,
+      brandId,
+      visibility,
+      metadata: { mediaType: "image", model, assetId: asset.id, durationMs },
+    });
+
     // Award XP and check badges after successful generation
-    const xpResult = await awardXP(userId, xpReward, "generation", `Generated ${model}`, generation.id);
-    const newBadges = await checkAndAwardBadges(userId);
+    const xpResult = await awardXP(userId, xpReward, "generation", `Generated ${model}`, generation.id, workspace.id);
+    const newBadges = await checkAndAwardBadges(userId, workspace.id);
 
     // Increment reference usage count
     if (imageInputFinal && imageInputFinal.length > 0) {

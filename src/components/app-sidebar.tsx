@@ -42,6 +42,7 @@ import {
   Home,
   Users,
   Plus,
+  Activity,
 } from "lucide-react";
 import { type Workspace } from "./workspace-switcher";
 import { BrandList } from "./brand-list";
@@ -119,6 +120,10 @@ type NavItem = {
 // out into a dedicated "+ Create" CTA above this list.
 const topNavItems: NavItem[] = [
   { title: "Home", href: "/overview", icon: Home },
+  // Activity feed (US1). Sits between Home and Gallery — the lifecycle log
+  // is closest to "what's going on" (Home) and feeds into "things to look at"
+  // (Gallery).
+  { title: "Activity", href: "/activity", icon: Activity },
   { title: "Gallery", href: "/gallery", icon: Images },
 ];
 

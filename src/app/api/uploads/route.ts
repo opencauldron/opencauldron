@@ -9,6 +9,7 @@ import {
 } from "@/lib/storage";
 import { db } from "@/lib/db";
 import { assets, brands, uploads } from "@/lib/db/schema";
+import { emitActivity } from "@/lib/activity";
 import { getCurrentWorkspace } from "@/lib/workspace/context";
 import {
   canCreateAsset,
@@ -251,6 +252,26 @@ export async function POST(req: NextRequest) {
     await db.delete(assets).where(eq(assets.id, asset.id));
     throw err;
   }
+
+  // Activity feed emission (US2 / FR-002). Visibility is computed at the call
+  // site: private for Personal-brand drafts, brand otherwise. Sits next to
+  // the source-of-truth INSERT — the global `db` handle is HTTP and doesn't
+  // expose `transaction()`, matching the same constraint that the
+  // notifications fan-out runs under at every transition site.
+  await emitActivity(db, {
+    actorId: userId,
+    verb: "generation.created",
+    objectType: "asset",
+    objectId: asset.id,
+    workspaceId: workspace.id,
+    brandId,
+    visibility: brandCtx.isPersonal ? "private" : "brand",
+    metadata: {
+      source: "uploaded",
+      mediaType: isImage ? "image" : "video",
+      fileName: file.name,
+    },
+  });
 
   const finalUrl = await getAssetUrl(key);
   const finalThumbnailUrl = thumbnailKey ? await getAssetUrl(thumbnailKey) : null;

@@ -7,6 +7,8 @@ import { downloadAndUploadVideo } from "@/lib/storage";
 import { eq, and } from "drizzle-orm";
 import type { ModelId } from "@/types";
 import { resolvePersonalBrandId } from "@/lib/workspace/personal";
+import { loadBrandContext } from "@/lib/workspace/permissions";
+import { emitActivity } from "@/lib/activity";
 
 export async function GET(
   _req: NextRequest,
@@ -193,6 +195,37 @@ export async function GET(
             .onConflictDoNothing();
         } catch (err) {
           console.error("[generate.status] campaign tag insert failed:", err);
+        }
+      }
+
+      // Activity feed (US2 / FR-002). Two emissions: `generation.created` for
+      // the new asset and `generation.completed` for the generation row.
+      // Visibility is computed at the call site from the resolved brand —
+      // private on Personal, brand on a managed brand.
+      if (brandId) {
+        const brandCtx = await loadBrandContext(brandId);
+        if (brandCtx) {
+          const visibility = brandCtx.isPersonal ? "private" : "brand";
+          await emitActivity(db, {
+            actorId: session.user.id,
+            verb: "generation.created",
+            objectType: "asset",
+            objectId: asset.id,
+            workspaceId: brandCtx.workspaceId,
+            brandId,
+            visibility,
+            metadata: { source: "generated", mediaType: "video", model: generation.model },
+          });
+          await emitActivity(db, {
+            actorId: session.user.id,
+            verb: "generation.completed",
+            objectType: "generation",
+            objectId: id,
+            workspaceId: brandCtx.workspaceId,
+            brandId,
+            visibility,
+            metadata: { mediaType: "video", model: generation.model, assetId: asset.id, durationMs },
+          });
         }
       }
 

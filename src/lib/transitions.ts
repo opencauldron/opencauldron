@@ -8,7 +8,8 @@
 
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { assetReviewLog, assets } from "@/lib/db/schema";
+import { assetReviewLog, assets, brands } from "@/lib/db/schema";
+import { emitActivity, type ActivityVerb } from "@/lib/activity";
 import {
   canApprove,
   canRejectOrArchive,
@@ -104,9 +105,15 @@ export interface TransitionResult {
 export async function transitionAsset(
   input: TransitionInput
 ): Promise<TransitionResult> {
-  // Row-level lock — guards against double-submit / approve races.
+  // Row-level lock — guards against double-submit / approve races. Pull
+  // brand_id alongside status so the activity emission below has the brand
+  // context without a second round-trip.
   const current = await db
-    .select({ id: assets.id, status: assets.status })
+    .select({
+      id: assets.id,
+      status: assets.status,
+      brandId: assets.brandId,
+    })
     .from(assets)
     .where(eq(assets.id, input.assetId))
     .for("update")
@@ -133,7 +140,63 @@ export async function transitionAsset(
     note: input.note ?? null,
   });
 
+  // Activity feed (US2 / FR-002). Submit / approve / reject map onto the
+  // three feed verbs; archive / unarchive are local audit-only and do not
+  // surface in the feed (no acceptance criterion in spec FR-004 covers
+  // them). Visibility is `brand` for all three — the route layer already
+  // forbids these transitions on Personal brands
+  // (`personal_brand_no_review`), so by construction the asset's brand is
+  // managed and a brand-scoped event is the right scope.
+  const verb = mapTransitionToActivityVerb(input.action);
+  if (verb && current[0].brandId) {
+    // Look up workspace_id off the brand. One extra round-trip per
+    // transition; keeps the helper self-contained without forcing every
+    // caller to thread workspace context through.
+    const [brandRow] = await db
+      .select({ workspaceId: brands.workspaceId })
+      .from(brands)
+      .where(eq(brands.id, current[0].brandId))
+      .limit(1);
+    if (brandRow?.workspaceId) {
+      await emitActivity(db, {
+        actorId: input.actorId,
+        verb,
+        objectType: "asset",
+        objectId: input.assetId,
+        workspaceId: brandRow.workspaceId,
+        brandId: current[0].brandId,
+        visibility: "brand",
+        metadata: {
+          fromStatus,
+          toStatus: rule.to,
+          ...(input.note ? { note: input.note } : {}),
+        },
+      });
+    }
+  }
+
   return { assetId: input.assetId, fromStatus, toStatus: rule.to };
+}
+
+/**
+ * Map a state-machine action to its activity-feed verb. `archive` and
+ * `unarchive` do not have feed verbs in v1 (spec FR-004 lists only the
+ * seven shipped verbs); they remain in `asset_review_log` for audit.
+ */
+function mapTransitionToActivityVerb(
+  action: TransitionAction
+): ActivityVerb | null {
+  switch (action) {
+    case "submit":
+      return "generation.submitted";
+    case "approve":
+      return "generation.approved";
+    case "reject":
+      return "generation.rejected";
+    case "archive":
+    case "unarchive":
+      return null;
+  }
 }
 
 /** Record a non-status audit event (e.g. forked, moved_brand). */

@@ -955,3 +955,114 @@ export const messageAttachments = pgTable(
       .where(sql`${t.assetId} IS NOT NULL`),
   ]
 );
+
+// ============================================================
+// Activity Events (migration 0023) — append-only feed ledger.
+//
+// APPEND-ONLY INVARIANT
+// ---------------------
+// Rows in `activity_events` are immutable. Once written, they MUST NEVER be
+// updated or deleted by application code. The only legitimate writers are:
+//   1. `emitActivity()` in `src/lib/activity.ts` — single canonical INSERT
+//      called from each lifecycle emission site, inside the same transaction
+//      as the underlying state change.
+//   2. `scripts/backfill-activity.ts` — one-shot historical backfill, also
+//      INSERT-only (uses `backfill_key` + ON CONFLICT for idempotency).
+// A state change that broadens visibility (e.g. private → brand) MUST emit a
+// NEW row; never mutate the prior one. See spec FR-001..FR-003.
+// A CI grep guard (see `scripts/check-activity-append-only.ts`) flags any
+// `db.update(activityEvents)` / `db.delete(activityEvents)` outside those two
+// files. If you need to break this invariant, you're almost certainly wrong;
+// talk to the spec owner.
+//
+// Schema notes:
+//   - `verb` and `visibility` are plain `text` columns with Drizzle TS enums.
+//     Adding a verb is a code change, not a migration (matches the convention
+//     used for `assets.status`, `notifications.type`, etc.).
+//   - `visibility` is computed at WRITE time by the caller and stored. Readers
+//     never re-derive it. (FR-002)
+//   - `metadata` is a JSONB blob for verb-specific payload (level number, feat
+//     slug, rejection reason, etc.). Schemaless on purpose.
+//   - `backfill_key` is null for live emissions; the backfill script sets it
+//     to a deterministic string and relies on the partial unique index for
+//     idempotency.
+// ============================================================
+
+export const ACTIVITY_VERBS = [
+  "generation.created",
+  "generation.submitted",
+  "generation.approved",
+  "generation.rejected",
+  "generation.completed",
+  "member.leveled_up",
+  "member.earned_feat",
+] as const;
+
+export const ACTIVITY_VISIBILITIES = ["private", "brand", "workspace"] as const;
+
+export const activityEvents = pgTable(
+  "activity_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
+      .defaultNow()
+      .notNull(),
+    actorId: uuid("actor_id")
+      .notNull()
+      .references(() => users.id),
+    // Plain text per FR-004 — Drizzle enum at the TS layer only, no Postgres
+    // ENUM. Adding a verb requires no migration.
+    verb: text("verb", { enum: ACTIVITY_VERBS }).notNull(),
+    // Polymorphic target. `object_type` is a free-form discriminator (e.g.
+    // "asset", "user", "feat") and `object_id` is the matching row's id —
+    // `text` (not `uuid`) because not every target uses UUIDs: `badges.id`
+    // is a text slug ("first-brew", "centaur"). Stringly-typed by design;
+    // consumers parse based on `object_type`.
+    objectType: text("object_type").notNull(),
+    objectId: text("object_id").notNull(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    // Nullable: workspace-scoped events (level-ups, feats earned) carry no
+    // brand context. ON DELETE SET NULL preserves history when a brand is
+    // removed.
+    brandId: uuid("brand_id").references(() => brands.id, {
+      onDelete: "set null",
+    }),
+    // Plain text + Drizzle enum (same rationale as `verb`).
+    visibility: text("visibility", { enum: ACTIVITY_VISIBILITIES }).notNull(),
+    metadata: jsonb("metadata")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    // Set ONLY by `scripts/backfill-activity.ts`. Live emissions leave this
+    // null. The partial unique index below makes the backfill idempotent.
+    backfillKey: text("backfill_key"),
+  },
+  (t) => [
+    // Hot read paths — each tab has its own dominant where-clause.
+    index("activity_events_actor_created_idx").on(
+      t.actorId,
+      t.createdAt.desc()
+    ),
+    index("activity_events_workspace_created_idx").on(
+      t.workspaceId,
+      t.createdAt.desc()
+    ),
+    // Partial — `brand_id` is null for workspace-scoped verbs.
+    index("activity_events_brand_created_idx")
+      .on(t.brandId, t.createdAt.desc())
+      .where(sql`${t.brandId} IS NOT NULL`),
+    // Composite for the workspace + my-brands tab queries which filter on
+    // visibility first.
+    index("activity_events_visibility_workspace_created_idx").on(
+      t.visibility,
+      t.workspaceId,
+      t.createdAt.desc()
+    ),
+    // Idempotency for the backfill script.
+    uniqueIndex("activity_events_backfill_key_unique")
+      .on(t.backfillKey)
+      .where(sql`${t.backfillKey} IS NOT NULL`),
+  ]
+);
