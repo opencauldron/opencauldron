@@ -1,0 +1,52 @@
+name: Feature request
+description: Suggest an idea or improvement for OpenCauldron
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to suggest an idea. The more context you give us about the problem you're trying to solve, the better the result will be.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the friction, gap, or use case you're running into. Focus on the problem before the solution.
+      placeholder: When I'm reviewing assets across multiple brands, I have to switch contexts every time because ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to see?
+      description: Describe the change you'd like. UI sketches, flows, or examples are welcome but not required.
+      placeholder: A way to filter the review queue by brand without leaving the page.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Other approaches you've thought about, including any current workarounds.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which area does this touch?
+      multiple: true
+      options:
+        - Generate
+        - Library
+        - Gallery
+        - Review
+        - Activity
+        - Threads
+        - Brands
+        - Campaigns
+        - Workspace / Members
+        - Self-hosting / Configuration
+        - Other
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else?
+      description: Links, screenshots, related issues, or extra context.
