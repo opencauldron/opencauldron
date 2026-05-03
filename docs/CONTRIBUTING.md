@@ -8,9 +8,9 @@ Thanks for your interest in contributing! This guide covers development setup, c
 git clone https://github.com/opencauldron/opencauldron.git
 cd opencauldron
 pnpm install
-cp .env.example .env.local    # fill in required values
-docker compose up db -d        # start local Postgres
-pnpm run db:push               # create tables
+cp .env.example .env.local                       # fill in required values
+docker compose -f docker-compose.dev.yml up -d   # start local Postgres
+pnpm exec drizzle-kit migrate                    # apply SQL migrations
 pnpm run dev
 ```
 
