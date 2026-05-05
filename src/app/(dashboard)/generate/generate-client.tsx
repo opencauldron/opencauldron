@@ -2418,10 +2418,12 @@ export function GenerateClient({
               <span className="text-xs tabular-nums text-muted-foreground">{generatedAsset.width} x {generatedAsset.height}</span>
             </div>
           )}
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">Cost</span>
-            <span className="text-xs tabular-nums text-muted-foreground">${generatedAsset.costEstimate.toFixed(3)}</span>
-          </div>
+          {typeof generatedAsset.costEstimate === "number" && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">Cost</span>
+              <span className="text-xs tabular-nums text-muted-foreground">${generatedAsset.costEstimate.toFixed(3)}</span>
+            </div>
+          )}
           {generatedAsset.mediaType === "video" && generatedAsset.duration && (
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">Duration</span>
