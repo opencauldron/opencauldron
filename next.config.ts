@@ -22,7 +22,10 @@ if (
 }
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  // `standalone` produces a minimal Node server bundle for self-hosted
+  // (Docker) deploys. Vercel needs Next.js's default output to wire up
+  // serverless functions correctly, so skip standalone when building there.
+  ...(process.env.VERCEL ? {} : { output: "standalone" as const }),
   turbopack: {
     root: __dirname,
   },
