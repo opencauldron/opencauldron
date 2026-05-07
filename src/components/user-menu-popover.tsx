@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { signOut } from "next-auth/react";
 import {
   Popover,
   PopoverContent,
@@ -84,7 +85,7 @@ export function UserMenuPopover({ user, studio }: UserMenuPopoverProps) {
 
   const handleSignOut = () => {
     setOpen(false);
-    window.location.href = "/api/auth/signout";
+    void signOut({ callbackUrl: "/login" });
   };
 
   return (
