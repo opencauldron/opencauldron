@@ -6,6 +6,26 @@ export type ChangelogEntry = {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    date: "2026-05-07",
+    title: "Bulk actions in Library and Gallery",
+    bullets: [
+      "Hover any card to reveal a checkbox — click to select, shift-click to extend a range, ⌘/Ctrl+A to select everything loaded, Esc to clear",
+      "A floating action bar shows up the moment you select something — submit, approve, reject, archive, delete, move to brand, or assign campaigns to the whole batch in one go",
+      "Buttons that don't apply to your selection dim with a count tooltip (e.g. \"3 of 7 can be approved\") so you know exactly what an action will affect",
+      "Approved assets stay protected — bulk delete and bulk move skip them and tell you which ones need a fork",
+      "Brand Gallery hides \"Move to brand\" since the brand is already locked, but every other bulk action works there too",
+    ],
+  },
+  {
+    date: "2026-05-07",
+    title: "Tag assets to campaigns from anywhere",
+    bullets: [
+      "The campaign picker now appears in the review modal, so brand managers and creators can group assets while triaging — no need to wait for approval or jump back to the library",
+      "After a generation finishes, a campaign picker shows up next to the brand and brew controls so you can tag the result before it moves through review",
+      "Tightened who can tag: only creators, brand managers, and workspace admins/owners see the picker — viewers no longer have an editing affordance (the server already enforced this)",
+    ],
+  },
+  {
     date: "2026-05-02",
     title: "Activity feed — see what's happening across your workspace",
     bullets: [

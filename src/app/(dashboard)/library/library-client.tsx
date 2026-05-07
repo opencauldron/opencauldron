@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Archive,
@@ -41,6 +41,13 @@ import {
   type CampaignOption,
   type TagOption,
 } from "./filter-bar";
+import { useBulkSelection } from "@/components/bulk/use-bulk-selection";
+import { BulkSelectCheckbox } from "@/components/bulk/bulk-select-checkbox";
+import {
+  BulkActionBar,
+  type BulkActionKind,
+  type BulkBarAsset,
+} from "@/components/bulk/bulk-action-bar";
 import { SearchInput } from "./search-input";
 import {
   serializeLibraryQuery,
@@ -129,6 +136,12 @@ interface LibraryClientProps {
   viewer: LibraryViewer;
 }
 
+interface BulkViewerState {
+  userId: string | null;
+  workspaceRole: "owner" | "admin" | "member" | null;
+  brandRoles: Record<string, "brand_manager" | "creator" | "viewer">;
+}
+
 // ---------------------------------------------------------------------------
 // Outer container — owns the LibraryQueryProvider so every facet shares the
 // same URL-synced state. The inner <LibraryGridContainer> reads the query
@@ -199,6 +212,7 @@ function LibraryGridContainer({
   initialNextCursor,
   initialTotal,
   initialBrands,
+  facetCampaigns,
   viewer,
 }: LibraryClientProps) {
   const router = useRouter();
@@ -214,6 +228,43 @@ function LibraryGridContainer({
   const [loadingPage, setLoadingPage] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [brands, setBrands] = useState<LibraryBrand[]>(initialBrands);
+  const [bulkViewer, setBulkViewer] = useState<BulkViewerState>({
+    userId: viewer.id,
+    workspaceRole: null,
+    brandRoles: {},
+  });
+
+  // Hydrate the viewer's permissions for the action-bar eligibility hints.
+  // Server is the source of truth; this just dims buttons that have no
+  // chance of succeeding.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        setBulkViewer({
+          userId: data?.userId ?? viewer.id,
+          workspaceRole: data?.role ?? null,
+          brandRoles: data?.brandRoles ?? {},
+        });
+      })
+      .catch(() => {
+        /* non-fatal — buttons stay generic */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [viewer.id]);
+
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const bulkSelection = useBulkSelection<LibraryAsset>(
+    items,
+    (a) => a.id,
+    { containerRef: gridRef }
+  );
+  const { selectedIds, isSelected, toggle, clear, count: bulkCount } =
+    bulkSelection;
 
   // Seed the first count immediately so the summary line doesn't flicker on
   // the initial render with filters that match the server-hydrated set.
@@ -236,6 +287,10 @@ function LibraryGridContainer({
     const next = searchParams.toString();
     if (next === lastQueryStringRef.current) return;
     lastQueryStringRef.current = next;
+    // Selection on a previous filter set shouldn't carry into a new one — the
+    // ids may not even appear in the new fetch. Clear before the network
+    // round-trip so the action bar doesn't flicker with stale state.
+    clear();
 
     let cancelled = false;
     setLoadingPage(true);
@@ -269,7 +324,7 @@ function LibraryGridContainer({
     return () => {
       cancelled = true;
     };
-  }, [searchParams, setResultsCount]);
+  }, [searchParams, setResultsCount, clear]);
 
   const loadMore = useCallback(
     async (cursor: string) => {
@@ -359,6 +414,69 @@ function LibraryGridContainer({
     setItems((prev) => prev.filter((it) => it.id !== id));
     setSelectedId((curr) => (curr === id ? null : curr));
   }, []);
+
+  const handleBulkApplied = useCallback(
+    (kind: BulkActionKind, succeeded: string[]) => {
+      if (succeeded.length === 0) return;
+      const succSet = new Set(succeeded);
+      if (kind === "delete") {
+        setItems((prev) => prev.filter((it) => !succSet.has(it.id)));
+      } else {
+        // For state-changing actions, the canonical truth lives server-side
+        // (status flipped, brand changed, campaigns swapped). Refetch the
+        // current filter view so the cards reconcile.
+        const sp = serializeLibraryQuery(parseLibraryQuery(searchParams));
+        sp.set("limit", "50");
+        fetch(`/api/library?${sp.toString()}`, { cache: "no-store" })
+          .then(async (res) => {
+            if (!res.ok) throw new Error(`status ${res.status}`);
+            return (await res.json()) as {
+              items: LibraryAsset[];
+              nextCursor: string | null;
+              total: number;
+            };
+          })
+          .then((data) => {
+            setItems(data.items);
+            setNextCursor(data.nextCursor);
+            setResultsCount(data.total);
+          })
+          .catch(() => {
+            /* non-fatal — selection already cleared, user can refresh */
+          });
+      }
+      clear();
+    },
+    [searchParams, setResultsCount, clear]
+  );
+
+  // Slim projection for the action bar — it only needs id/status/brand/owner
+  // to compute eligibility.
+  const selectedBulkAssets = useMemo<BulkBarAsset[]>(
+    () =>
+      items
+        .filter((it) => selectedIds.has(it.id))
+        .map((it) => ({
+          id: it.id,
+          brandId: it.brandId,
+          status: it.status,
+          userId: it.userId,
+        })),
+    [items, selectedIds]
+  );
+
+  const bulkBrandOptions = useMemo(
+    () =>
+      brands
+        .filter((b) => !b.isPersonal)
+        .map((b) => ({
+          id: b.id,
+          name: b.name,
+          color: b.color,
+          isPersonal: b.isPersonal,
+        })),
+    [brands]
+  );
 
   const handleBrandPinChange = useCallback(
     (brandId: string, assetId: string, pinned: boolean) => {
@@ -510,6 +628,7 @@ function LibraryGridContainer({
   return (
     <div className="space-y-4 pt-2">
       <div
+        ref={gridRef}
         // Subtle dim while a transition or filter fetch is pending — keeps
         // the user oriented without ripping the grid out from under them.
         className={cn(
@@ -517,6 +636,10 @@ function LibraryGridContainer({
           (isPending || loadingPage) && items.length > 0 && "opacity-60"
         )}
         aria-busy={isPending || loadingPage || undefined}
+        // Make the container focusable so Cmd/Ctrl+A is scoped — the keydown
+        // handler in `useBulkSelection` checks that the active element lives
+        // inside this node.
+        tabIndex={-1}
       >
         {blankEmpty && <LibraryBlankEmptyState />}
         {filteredEmpty && (
@@ -525,7 +648,15 @@ function LibraryGridContainer({
             onClearAll={clearAll}
           />
         )}
-        {!isEmpty && <LibraryGrid items={items} onSelect={setSelectedId} />}
+        {!isEmpty && (
+          <LibraryGrid
+            items={items}
+            onSelect={setSelectedId}
+            isSelected={isSelected}
+            onToggle={toggle}
+            selectionCount={bulkCount}
+          />
+        )}
 
         {/* Sentinel + spinner. Sentinel is always rendered when more pages exist
             so the observer keeps a target after each successful page. */}
@@ -553,6 +684,15 @@ function LibraryGridContainer({
         viewer={viewer}
         initialMessageId={urlMessageId}
       />
+
+      <BulkActionBar
+        assets={selectedBulkAssets}
+        viewer={bulkViewer}
+        brandOptions={bulkBrandOptions}
+        campaignOptions={facetCampaigns}
+        onClear={clear}
+        onApplied={handleBulkApplied}
+      />
     </div>
   );
 }
@@ -564,9 +704,15 @@ function LibraryGridContainer({
 function LibraryGrid({
   items,
   onSelect,
+  isSelected,
+  onToggle,
+  selectionCount,
 }: {
   items: LibraryAsset[];
   onSelect: (id: string) => void;
+  isSelected: (id: string) => boolean;
+  onToggle: (id: string, event?: { shiftKey?: boolean }) => void;
+  selectionCount: number;
 }) {
   return (
     <div
@@ -578,6 +724,9 @@ function LibraryGrid({
           key={item.id}
           asset={item}
           onClick={() => onSelect(item.id)}
+          selected={isSelected(item.id)}
+          onToggle={(event) => onToggle(item.id, event)}
+          selectionActive={selectionCount > 0}
         />
       ))}
     </div>
@@ -591,23 +740,58 @@ function LibraryGrid({
 function LibraryCard({
   asset,
   onClick,
+  selected,
+  onToggle,
+  selectionActive,
 }: {
   asset: LibraryAsset;
   onClick: () => void;
+  selected: boolean;
+  onToggle: (event: { shiftKey?: boolean }) => void;
+  selectionActive: boolean;
 }) {
+  // Card root is a div with role="button" — the card hosts a child checkbox
+  // that itself is a <button>, and nesting buttons is invalid HTML. Enter and
+  // Space are wired manually to preserve activation semantics. When the user
+  // holds shift while clicking the card itself we treat it as a range-select
+  // toggle (matching the checkbox's behavior) rather than opening the panel,
+  // so users can build up a multi-selection without aiming for the checkbox.
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <div
+      role="button"
+      tabIndex={0}
       data-slot="library-card"
+      data-selected={selected || undefined}
+      onClick={(e) => {
+        if (e.shiftKey || selectionActive) {
+          e.preventDefault();
+          onToggle({ shiftKey: e.shiftKey });
+          return;
+        }
+        onClick();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          if (e.shiftKey) {
+            onToggle({ shiftKey: true });
+          } else if (selectionActive) {
+            onToggle({});
+          } else {
+            onClick();
+          }
+        }
+      }}
       className={cn(
         "group/card relative cursor-pointer overflow-hidden rounded-xl bg-muted text-left",
         "ring-1 ring-foreground/10",
         "hover:-translate-y-0.5 hover:shadow-lg hover:ring-primary/40",
         "active:translate-y-px",
-        "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/60"
+        "focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/60",
+        selected && "ring-2 ring-primary/70"
       )}
       aria-label={asset.fileName ?? `Asset ${asset.id.slice(0, 8)}`}
+      aria-pressed={selected}
     >
       <div className="relative aspect-square">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -619,7 +803,13 @@ function LibraryCard({
           decoding="async"
         />
 
-        <div className="absolute left-2 top-2 flex items-center gap-1">
+        <BulkSelectCheckbox
+          checked={selected}
+          onToggle={onToggle}
+          alwaysVisible={selectionActive}
+        />
+
+        <div className="absolute left-9 top-2 flex items-center gap-1">
           <SourceBadge source={asset.source} />
           <StatusBadge status={asset.status} />
         </div>
@@ -667,7 +857,7 @@ function LibraryCard({
           </div>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
