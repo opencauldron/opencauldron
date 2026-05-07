@@ -398,28 +398,9 @@ export function ReviewClient({ viewer }: ReviewClientProps) {
         <ReviewModal
           open={modalOpen && queue.queue.length > 0}
           queue={queue.queue}
-          brandId={queue.brand.id}
           index={modalIndex}
           onIndexChange={setModalIndex}
           onAction={handleAction}
-          onCampaignsChange={(itemId, nextCampaigns) => {
-            setQueue((prev) => {
-              if (!prev) return prev;
-              return {
-                ...prev,
-                queue: prev.queue.map((q) =>
-                  q.id === itemId ? { ...q, campaigns: nextCampaigns } : q
-                ),
-              };
-            });
-            setDisplayQueue((prev) =>
-              prev
-                ? prev.map((q) =>
-                    q.id === itemId ? { ...q, campaigns: nextCampaigns } : q
-                  )
-                : prev
-            );
-          }}
           onClose={closeModal}
           displayQueue={displayQueue ?? undefined}
           sessionDecisions={sessionDecisions}

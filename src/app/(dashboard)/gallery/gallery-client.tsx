@@ -66,15 +66,6 @@ import {
 import { BrandMark } from "@/components/brand-mark";
 import { AssetDownloadButton } from "@/components/library/asset-download-button";
 import { ThreadPanel } from "@/components/threads/thread-panel";
-import { useBulkSelection } from "@/components/bulk/use-bulk-selection";
-import { BulkSelectCheckbox } from "@/components/bulk/bulk-select-checkbox";
-import {
-  BulkActionBar,
-  type BulkActionKind,
-  type BulkBarAsset,
-} from "@/components/bulk/bulk-action-bar";
-import type { BulkCampaignOption } from "@/components/bulk/bulk-campaign-picker";
-import { cn } from "@/lib/utils";
 
 const PROVIDER_LABELS: Record<string, string> = {
   google: "Gemini",
@@ -274,14 +265,6 @@ export function GalleryClient({ lockedBrandId, viewer }: GalleryClientProps) {
   const [dateTo, setDateTo] = useState(() => searchParams.get("to") ?? "");
 
   const observerRef = useRef<HTMLDivElement>(null);
-  const gridRef = useRef<HTMLDivElement | null>(null);
-
-  // Campaigns for the bulk action picker. Loaded per visible brand on demand
-  // so a workspace with hundreds of campaigns doesn't pay the cost up-front.
-  const [campaignOptions, setCampaignOptions] = useState<BulkCampaignOption[]>(
-    []
-  );
-  const loadedCampaignBrandsRef = useRef<Set<string>>(new Set());
 
   // Sync filter state to the URL (replace, not push, so each keystroke doesn't
   // bloat history). useEffect dependency tracks the canonical filter set.
@@ -381,90 +364,6 @@ export function GalleryClient({ lockedBrandId, viewer }: GalleryClientProps) {
     return () => observer.disconnect();
   }, [nextCursor, loadingMore, loadMore]);
 
-  // Bulk selection wiring. The hook prunes vanished ids automatically when
-  // `assets` changes (filter swap, cursor refetch).
-  const bulkSelection = useBulkSelection<GalleryAsset>(
-    assets,
-    (a) => a.id,
-    { containerRef: gridRef }
-  );
-  const {
-    selectedIds: bulkSelectedIds,
-    isSelected: bulkIsSelected,
-    toggle: bulkToggle,
-    clear: bulkClear,
-    count: bulkCount,
-  } = bulkSelection;
-
-  // Clear selection on filter changes — the in-flight or next refetch may
-  // not include the currently-selected ids.
-  useEffect(() => {
-    bulkClear();
-    // Intentionally only reactive to filter inputs, not the clear function.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    modelFilter,
-    mediaTypeFilter,
-    statusFilter,
-    brandFilter,
-    searchQuery,
-    dateFrom,
-    dateTo,
-  ]);
-
-  // On-demand campaign load for the picker. The picker only acts on a
-  // single-brand selection, so we lazily fetch each brand's campaigns the
-  // first time we see it.
-  useEffect(() => {
-    const seen = loadedCampaignBrandsRef.current;
-    const needed = new Set<string>();
-    for (const id of bulkSelectedIds) {
-      const a = assets.find((x) => x.id === id);
-      if (a?.brandId && !seen.has(a.brandId)) needed.add(a.brandId);
-    }
-    if (needed.size === 0) return;
-
-    let cancelled = false;
-    (async () => {
-      const fetched = await Promise.all(
-        Array.from(needed).map(async (brandId) => {
-          try {
-            const res = await fetch(
-              `/api/campaigns?brandId=${encodeURIComponent(brandId)}`
-            );
-            if (!res.ok) return [] as BulkCampaignOption[];
-            const data = (await res.json()) as Array<{
-              id: string;
-              name: string;
-            }>;
-            return data.map((c) => ({
-              id: c.id,
-              name: c.name,
-              brandId,
-            }));
-          } catch {
-            return [] as BulkCampaignOption[];
-          }
-        })
-      );
-      if (cancelled) return;
-      for (const id of needed) seen.add(id);
-      const flat = fetched.flat();
-      if (flat.length > 0) {
-        setCampaignOptions((prev) => {
-          const byKey = new Map(
-            prev.map((c) => [`${c.brandId}:${c.id}`, c] as const)
-          );
-          for (const c of flat) byKey.set(`${c.brandId}:${c.id}`, c);
-          return Array.from(byKey.values());
-        });
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [bulkSelectedIds, assets]);
-
   const handleDelete = async (id: string) => {
     setDeleting(true);
     try {
@@ -555,77 +454,6 @@ export function GalleryClient({ lockedBrandId, viewer }: GalleryClientProps) {
   };
 
   const isAdmin = me.role === "owner" || me.role === "admin";
-
-  const selectedBulkAssets = useMemo<BulkBarAsset[]>(
-    () =>
-      assets
-        .filter((a) => bulkSelectedIds.has(a.id))
-        .map((a) => ({
-          id: a.id,
-          brandId: a.brandId,
-          // GalleryAsset.status is nullable for legacy rows; the action bar
-          // treats null as ineligible for state-changing actions, which is
-          // correct.
-          status: a.status,
-          userId: a.userId,
-        })),
-    [assets, bulkSelectedIds]
-  );
-
-  const bulkBrandOptions = useMemo(
-    () =>
-      allBrands
-        .filter((b) => !b.isPersonal)
-        .map((b) => ({
-          id: b.id,
-          name: b.name,
-          color: b.color,
-          isPersonal: b.isPersonal ?? false,
-          logoUrl: b.logoUrl ?? null,
-          ownerImage: b.ownerImage ?? null,
-        })),
-    [allBrands]
-  );
-
-  const handleBulkApplied = useCallback(
-    (kind: BulkActionKind, succeeded: string[]) => {
-      if (succeeded.length === 0) return;
-      const succSet = new Set(succeeded);
-      if (kind === "delete") {
-        setAssets((prev) => prev.filter((a) => !succSet.has(a.id)));
-      } else {
-        // Refetch the current view so reassign / transition / campaign
-        // changes reconcile from the server.
-        fetch(`/api/assets?${buildQuery()}`)
-          .then(async (res) => {
-            if (!res.ok) return null;
-            return await res.json();
-          })
-          .then((data) => {
-            if (!data) return;
-            let filtered = data.assets as GalleryAsset[];
-            if (dateFrom) {
-              const from = new Date(dateFrom);
-              filtered = filtered.filter(
-                (a) => new Date(a.createdAt) >= from
-              );
-            }
-            if (dateTo) {
-              const to = new Date(dateTo);
-              to.setHours(23, 59, 59, 999);
-              filtered = filtered.filter((a) => new Date(a.createdAt) <= to);
-            }
-            setAssets(filtered);
-            setNextCursor(data.nextCursor ?? null);
-          })
-          .catch(() => {
-            /* non-fatal */
-          });
-      }
-      bulkClear();
-    },
-    [buildQuery, bulkClear, dateFrom, dateTo]
-  );
 
   /** Brands the caller is `creator+` on (admin override sees every brand). */
   const reassignDestinations = useMemo(() => {
@@ -1008,19 +836,12 @@ export function GalleryClient({ lockedBrandId, viewer }: GalleryClientProps) {
 
       {/* Grid */}
       {!loading && assets.length > 0 && (
-        <div
-          ref={gridRef}
-          tabIndex={-1}
-          className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4"
-        >
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-4">
           {assets.map((asset) => (
             <GalleryCard
               key={asset.id}
               asset={asset}
               onClick={() => setSelectedAsset(asset)}
-              selected={bulkIsSelected(asset.id)}
-              onToggle={(event) => bulkToggle(asset.id, event)}
-              selectionActive={bulkCount > 0}
             />
           ))}
         </div>
@@ -1630,20 +1451,6 @@ export function GalleryClient({ lockedBrandId, viewer }: GalleryClientProps) {
           </DialogContent>
         ) : null}
       </Dialog>
-
-      <BulkActionBar
-        assets={selectedBulkAssets}
-        viewer={{
-          userId: me.userId,
-          workspaceRole: me.role,
-          brandRoles: me.brandRoles,
-        }}
-        brandOptions={bulkBrandOptions}
-        campaignOptions={campaignOptions}
-        lockedBrandId={lockedBrandId}
-        onClear={bulkClear}
-        onApplied={handleBulkApplied}
-      />
     </div>
   );
 }
@@ -1655,54 +1462,16 @@ export function GalleryClient({ lockedBrandId, viewer }: GalleryClientProps) {
 function GalleryCard({
   asset,
   onClick,
-  selected,
-  onToggle,
-  selectionActive,
 }: {
   asset: GalleryAsset;
   onClick: () => void;
-  selected: boolean;
-  onToggle: (event: { shiftKey?: boolean }) => void;
-  selectionActive: boolean;
 }) {
   const isVideo = asset.mediaType === "video";
 
-  // Card root is a div with role="button" — the card hosts a child checkbox
-  // that itself is a <button>. Nesting buttons is invalid HTML, so we wire
-  // Enter/Space + click manually. Shift-click and selection-active clicks
-  // toggle the bulk-select state instead of opening the lightbox.
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      data-selected={selected || undefined}
-      onClick={(e) => {
-        if (e.shiftKey || selectionActive) {
-          e.preventDefault();
-          onToggle({ shiftKey: e.shiftKey });
-          return;
-        }
-        onClick();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          if (e.shiftKey) {
-            onToggle({ shiftKey: true });
-          } else if (selectionActive) {
-            onToggle({});
-          } else {
-            onClick();
-          }
-        }
-      }}
-      aria-pressed={selected}
-      className={cn(
-        "group/card group relative overflow-hidden rounded-lg bg-muted text-left cursor-pointer transition-all",
-        "hover:ring-2 hover:ring-ring/50 hover:-translate-y-0.5 hover:shadow-lg",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        selected && "ring-2 ring-primary/70"
-      )}
+    <button
+      onClick={onClick}
+      className="group relative overflow-hidden rounded-lg bg-muted text-left cursor-pointer transition-all hover:ring-2 hover:ring-ring/50 hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="aspect-square relative">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1711,12 +1480,6 @@ function GalleryCard({
           alt={asset.prompt}
           className="h-full w-full object-cover"
           loading="lazy"
-        />
-
-        <BulkSelectCheckbox
-          checked={selected}
-          onToggle={onToggle}
-          alwaysVisible={selectionActive}
         />
 
         {/* Brand tag — top-left, single brand from FK (FR-009). */}
@@ -1805,7 +1568,7 @@ function GalleryCard({
           </div>
         </div>
       </div>
-    </div>
+    </button>
   );
 }
 

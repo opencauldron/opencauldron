@@ -1,25 +1,18 @@
 /**
  * PATCH /api/assets/[id]/campaigns — set the asset's campaign list (M2M
  * replace). Caller must be Creator+ on the asset's brand.
- *
- * Mutation logic lives in `@/lib/assets/mutations`; this route is the HTTP
- * adapter. The bulk endpoint reuses the same helper with set/add/remove
- * modes.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { assets } from "@/lib/db/schema";
+import { assetCampaigns, assets, campaigns } from "@/lib/db/schema";
 import {
-  AssetMutationError,
-  setAssetCampaigns,
-} from "@/lib/assets/mutations";
-import {
+  canCreateAsset,
   loadBrandContext,
   loadRoleContext,
 } from "@/lib/workspace/permissions";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 const bodySchema = z.object({
@@ -47,16 +40,7 @@ export async function PATCH(
   const desired = parsed.data.campaignIds;
 
   const [asset] = await db
-    .select({
-      id: assets.id,
-      userId: assets.userId,
-      brandId: assets.brandId,
-      status: assets.status,
-      prompt: assets.prompt,
-      r2Key: assets.r2Key,
-      thumbnailR2Key: assets.thumbnailR2Key,
-      webpR2Key: assets.webpR2Key,
-    })
+    .select({ id: assets.id, brandId: assets.brandId })
     .from(assets)
     .where(eq(assets.id, assetId))
     .limit(1);
@@ -70,23 +54,33 @@ export async function PATCH(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
   const ctx = await loadRoleContext(session.user.id, brandCtx.workspaceId);
-
-  try {
-    const result = await setAssetCampaigns({
-      asset,
-      brandCtx,
-      ctx,
-      campaignIds: desired,
-      mode: "set",
-    });
-    return NextResponse.json({
-      success: true,
-      campaignIds: result.campaignIds,
-    });
-  } catch (err) {
-    if (err instanceof AssetMutationError) {
-      return NextResponse.json({ error: err.code }, { status: err.status });
-    }
-    throw err;
+  if (!canCreateAsset(ctx, brandCtx)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
+
+  // All campaign ids must belong to the asset's brand. Catches typos and
+  // cross-brand leakage.
+  if (desired.length > 0) {
+    const valid = await db
+      .select({ id: campaigns.id })
+      .from(campaigns)
+      .where(
+        and(eq(campaigns.brandId, asset.brandId), inArray(campaigns.id, desired))
+      );
+    if (valid.length !== desired.length) {
+      return NextResponse.json(
+        { error: "campaigns_not_in_brand" },
+        { status: 400 }
+      );
+    }
+  }
+
+  await db.delete(assetCampaigns).where(eq(assetCampaigns.assetId, assetId));
+  if (desired.length > 0) {
+    await db
+      .insert(assetCampaigns)
+      .values(desired.map((cid) => ({ assetId, campaignId: cid })));
+  }
+
+  return NextResponse.json({ success: true, campaignIds: desired });
 }

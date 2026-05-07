@@ -31,7 +31,6 @@ import {
   nextNonDecisionedIndex,
 } from "@/components/review-filmstrip";
 import { ThreadPanel } from "@/components/threads/thread-panel";
-import { CampaignPicker } from "@/components/asset/campaign-picker";
 
 export interface ReviewQueueItem {
   id: string;
@@ -59,11 +58,6 @@ export interface ReviewQueueItem {
 interface ReviewModalProps {
   open: boolean;
   queue: ReviewQueueItem[];
-  /**
-   * Brand the queue belongs to. Used by the inline campaign picker to scope
-   * its option list and to gate visibility on the viewer's brand role.
-   */
-  brandId: string;
   index: number;
   onIndexChange: (next: number) => void;
   onAction: (
@@ -71,15 +65,6 @@ interface ReviewModalProps {
     item: ReviewQueueItem,
     note: string | undefined
   ) => Promise<void> | void;
-  /**
-   * Called when the user edits campaign tags from inside the modal. Lets the
-   * parent keep its `queue`/`displayQueue` state in sync so the filmstrip and
-   * the next reviewer surface see the change.
-   */
-  onCampaignsChange?: (
-    itemId: string,
-    next: { id: string; name: string }[]
-  ) => void;
   onClose: () => void;
   /**
    * Stable snapshot of the queue captured when the modal opened. The filmstrip
@@ -112,11 +97,9 @@ const EMPTY_DECISIONS: Map<string, "approved" | "rejected"> = new Map();
 export function ReviewModal({
   open,
   queue,
-  brandId,
   index,
   onIndexChange,
   onAction,
-  onCampaignsChange,
   onClose,
   displayQueue,
   sessionDecisions,
@@ -350,12 +333,6 @@ export function ReviewModal({
               <Field label="Campaign">
                 <CampaignMetadata campaigns={item.campaigns} />
               </Field>
-              <CampaignPicker
-                assetId={item.id}
-                brandId={brandId}
-                campaigns={item.campaigns}
-                onChange={(next) => onCampaignsChange?.(item.id, next)}
-              />
               <Field label="Prompt">
                 <p className="whitespace-pre-wrap text-foreground">
                   {item.prompt}
