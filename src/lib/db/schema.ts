@@ -44,6 +44,12 @@ export const users = pgTable("users", {
     .default("member"),
   dailyLimit: integer("daily_limit").notNull().default(50),
   hasVideoAccess: boolean("has_video_access").notNull().default(false),
+  // Public-signup onboarding (display name + workspace name + ToS/Privacy
+  // capture). Null until the user completes the /onboarding step. Self-host
+  // installs leave these null forever — proxy only enforces in hosted mode.
+  onboardingCompletedAt: timestamp("onboarding_completed_at", { mode: "date" }),
+  acceptedTermsAt: timestamp("accepted_terms_at", { mode: "date" }),
+  acceptedPrivacyAt: timestamp("accepted_privacy_at", { mode: "date" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

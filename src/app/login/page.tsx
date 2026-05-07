@@ -1,5 +1,7 @@
-import { signIn } from "@/lib/auth";
+import Link from "next/link";
+import { signIn, isResendEnabled } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Card,
   CardContent,
@@ -22,12 +24,22 @@ const SPARKLES = Array.from({ length: 14 }, (_, i) => ({
   delay: i * 0.4,
 }));
 
-export default function LoginPage({
+export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; mode?: string }>;
 }) {
   const hasOrg = !!ORG_NAME;
+  const params = await searchParams;
+  const isSignup = params.mode === "signup";
+  const heading = isSignup
+    ? "Create your account"
+    : hasOrg
+      ? (STUDIO_NAME ?? ORG_NAME)
+      : "OpenCauldron";
+  const subtitle = isSignup
+    ? "Join the open-source AI media studio."
+    : "Welcome back. Conjure stunning media with a wave of your wand.";
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background">
@@ -83,10 +95,10 @@ export default function LoginPage({
                 )}
                 <div className="space-y-1.5">
                   <CardTitle className="font-heading text-3xl font-bold tracking-tight">
-                    {STUDIO_NAME ?? ORG_NAME}
+                    {heading}
                   </CardTitle>
                   <CardDescription className="text-sm text-muted-foreground">
-                    Conjure stunning media with a wave of your wand.
+                    {subtitle}
                   </CardDescription>
                 </div>
               </>
@@ -98,10 +110,10 @@ export default function LoginPage({
                 </div>
                 <div className="space-y-1.5">
                   <CardTitle className="font-heading text-3xl font-bold tracking-tight">
-                    OpenCauldron
+                    {heading}
                   </CardTitle>
                   <CardDescription className="text-sm text-muted-foreground">
-                    Conjure stunning media with a wave of your wand.
+                    {subtitle}
                   </CardDescription>
                 </div>
               </>
@@ -157,9 +169,14 @@ export default function LoginPage({
 async function LoginContent({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; mode?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, mode } = await searchParams;
+  const isSignup = mode === "signup";
+  const googleLabel = isSignup ? "Sign up with Google" : "Sign in with Google";
+  const magicLinkLabel = isSignup
+    ? "Sign up with a magic link"
+    : "Email me a magic link";
 
   return (
     <>
@@ -178,11 +195,88 @@ async function LoginContent({
       >
         <Button type="submit" className="w-full" size="lg">
           <GoogleIcon />
-          Sign in with Google
+          {googleLabel}
         </Button>
       </form>
+
+      {isResendEnabled ? (
+        <>
+          <div className="relative my-1">
+            <div className="absolute inset-0 flex items-center" aria-hidden="true">
+              <div className="w-full border-t border-border/60" />
+            </div>
+            <div className="relative flex justify-center">
+              <span className="bg-card px-2 text-[11px] uppercase tracking-wider text-muted-foreground/70">
+                or
+              </span>
+            </div>
+          </div>
+          <form
+            action={async (formData: FormData) => {
+              "use server";
+              const email = String(formData.get("email") ?? "").trim();
+              if (!email) return;
+              await signIn("resend", { email, redirectTo: "/" });
+            }}
+            className="space-y-2"
+          >
+            <Input
+              type="email"
+              name="email"
+              required
+              autoComplete="email"
+              placeholder="you@example.com"
+              aria-label="Email address"
+            />
+            <Button type="submit" variant="secondary" className="w-full" size="lg">
+              {magicLinkLabel}
+            </Button>
+          </form>
+          <p className="text-center text-xs text-muted-foreground">
+            We&apos;ll email you a one-time link to sign in.
+          </p>
+        </>
+      ) : (
+        <p className="text-center text-xs text-muted-foreground">
+          {isSignup
+            ? "Sign up with your Google account to get started"
+            : "Sign in with your Google account to get started"}
+        </p>
+      )}
+
+      {isSignup ? (
+        <p className="text-center text-[11px] leading-relaxed text-muted-foreground/80">
+          By continuing, you agree to our{" "}
+          <Link href="/terms" className="underline hover:text-foreground">
+            Terms
+          </Link>{" "}
+          and{" "}
+          <Link href="/privacy" className="underline hover:text-foreground">
+            Privacy Policy
+          </Link>
+          .
+        </p>
+      ) : null}
+
       <p className="text-center text-xs text-muted-foreground">
-        Sign in with your Google account to get started
+        {isSignup ? (
+          <>
+            Already have an account?{" "}
+            <Link href="/login" className="font-medium underline hover:text-foreground">
+              Sign in
+            </Link>
+          </>
+        ) : (
+          <>
+            Don&apos;t have an account?{" "}
+            <Link
+              href="/login?mode=signup"
+              className="font-medium underline hover:text-foreground"
+            >
+              Sign up
+            </Link>
+          </>
+        )}
       </p>
     </>
   );

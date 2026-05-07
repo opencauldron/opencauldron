@@ -1,5 +1,6 @@
-import NextAuth from "next-auth";
+import NextAuth, { type NextAuthConfig } from "next-auth";
 import Google from "next-auth/providers/google";
+import Resend from "next-auth/providers/resend";
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
 import { db } from "@/lib/db";
 import {
@@ -13,6 +14,28 @@ import { eq } from "drizzle-orm";
 import { env } from "@/lib/env";
 import { bootstrapHostedSignup } from "@/lib/workspace/bootstrap";
 
+// Magic-link email is opt-in: enabled only when both Resend env vars are
+// configured. Self-host installs without Resend keep using Google-only.
+export const isResendEnabled = Boolean(
+  env.RESEND_API_KEY && env.RESEND_FROM_EMAIL,
+);
+
+const providers: NextAuthConfig["providers"] = [
+  Google({
+    clientId: process.env.GOOGLE_CLIENT_ID!,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+  }),
+];
+
+if (isResendEnabled) {
+  providers.push(
+    Resend({
+      apiKey: env.RESEND_API_KEY!,
+      from: env.RESEND_FROM_EMAIL!,
+    }),
+  );
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: DrizzleAdapter(db, {
     usersTable: users,
@@ -20,12 +43,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     sessionsTable: sessions,
     verificationTokensTable: verificationTokens,
   }),
-  providers: [
-    Google({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-    }),
-  ],
+  providers,
   pages: {
     signIn: "/login",
     error: "/login",
@@ -52,9 +70,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const email = user.email;
       if (!email) return false;
 
-      const allowedDomain = process.env.ALLOWED_EMAIL_DOMAIN;
-      if (allowedDomain && !email.endsWith(`@${allowedDomain}`)) {
-        return false;
+      // ALLOWED_EMAIL_DOMAIN is a self-host knob — a single-tenant Docker
+      // install can pin sign-in to one corporate domain. Hosted (public)
+      // deployments leave it unset so anyone can sign up.
+      if (env.WORKSPACE_MODE === "self_hosted") {
+        const allowedDomain = process.env.ALLOWED_EMAIL_DOMAIN;
+        if (allowedDomain && !email.endsWith(`@${allowedDomain}`)) {
+          return false;
+        }
       }
 
       return true;
@@ -63,12 +86,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (session.user) {
         session.user.id = user.id;
         const dbUser = await db
-          .select({ role: users.role })
+          .select({
+            role: users.role,
+            onboardingCompletedAt: users.onboardingCompletedAt,
+          })
           .from(users)
           .where(eq(users.id, user.id))
           .limit(1);
         (session.user as unknown as Record<string, unknown>).role =
           dbUser[0]?.role ?? "member";
+        (
+          session.user as unknown as Record<string, unknown>
+        ).onboardingCompletedAt = dbUser[0]?.onboardingCompletedAt ?? null;
 
         // Defensive backfill — if a user exists but has no workspace member
         // row (e.g. legacy account predating the bootstrap event), create

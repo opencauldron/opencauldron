@@ -2,15 +2,19 @@ import { auth } from "@/lib/auth";
 
 export const proxy = auth((req) => {
   const isLoggedIn = !!req.auth;
-  const isLoginPage = req.nextUrl.pathname === "/login";
-  const isAuthApi = req.nextUrl.pathname.startsWith("/api/auth");
-  const isUploadsApi = req.nextUrl.pathname.startsWith("/api/uploads");
+  const path = req.nextUrl.pathname;
+  const isLoginPage = path === "/login";
+  const isAuthApi = path.startsWith("/api/auth");
+  const isUploadsApi = path.startsWith("/api/uploads");
   // /api/health is the Docker / orchestrator liveness probe and must be
   // reachable without auth — the HEALTHCHECK has no session cookie.
-  const isHealthApi = req.nextUrl.pathname === "/api/health";
-  const isPublicBrew = req.nextUrl.pathname.startsWith("/brew/")
-    || req.nextUrl.pathname.startsWith("/api/brews/explore")
-    || req.nextUrl.pathname.startsWith("/api/brews/public/");
+  const isHealthApi = path === "/api/health";
+  const isPublicBrew = path.startsWith("/brew/")
+    || path.startsWith("/api/brews/explore")
+    || path.startsWith("/api/brews/public/");
+  const isLegalPage = path === "/terms" || path === "/privacy";
+  const isOnboardingPage = path === "/onboarding";
+  const isOnboardingApi = path.startsWith("/api/onboarding");
 
   // Dev-only login shortcut. The route handler does its own gate
   // (`NODE_ENV !== "production"` AND `DEV_LOGIN_ENABLED === "true"`); we
@@ -21,11 +25,20 @@ export const proxy = auth((req) => {
     process.env.NODE_ENV !== "production" &&
     process.env.DEV_LOGIN_ENABLED === "true";
   const isDevLogin =
-    isDevLoginAllowed && req.nextUrl.pathname === "/api/dev-login";
+    isDevLoginAllowed && path === "/api/dev-login";
 
   // Allow auth API routes, local upload serving, the health probe, public
-  // brew pages, and the dev-login shortcut when both env-checks permit it.
-  if (isAuthApi || isUploadsApi || isHealthApi || isPublicBrew || isDevLogin) return;
+  // brew pages, public legal pages, and the dev-login shortcut when both
+  // env-checks permit it.
+  if (
+    isAuthApi ||
+    isUploadsApi ||
+    isHealthApi ||
+    isPublicBrew ||
+    isDevLogin ||
+    isLegalPage
+  )
+    return;
 
   // Redirect unauthenticated users to login
   if (!isLoggedIn && !isLoginPage) {
@@ -35,6 +48,21 @@ export const proxy = auth((req) => {
   // Redirect authenticated users away from login
   if (isLoggedIn && isLoginPage) {
     return Response.redirect(new URL("/", req.nextUrl));
+  }
+
+  // Onboarding gate — only enforced for the hosted (public SaaS) deployment.
+  // Self-hosted installs leave `onboardingCompletedAt` null forever and
+  // skip the redirect; bootstrap CLI is the equivalent for them.
+  if (isLoggedIn && process.env.WORKSPACE_MODE === "hosted") {
+    const completedAt = req.auth?.user?.onboardingCompletedAt;
+    const onboardingDone = completedAt != null;
+
+    if (!onboardingDone && !isOnboardingPage && !isOnboardingApi) {
+      return Response.redirect(new URL("/onboarding", req.nextUrl));
+    }
+    if (onboardingDone && isOnboardingPage) {
+      return Response.redirect(new URL("/", req.nextUrl));
+    }
   }
 });
 

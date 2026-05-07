@@ -7,6 +7,15 @@ export type ChangelogEntry = {
 export const CHANGELOG: ChangelogEntry[] = [
   {
     date: "2026-05-07",
+    title: "Public sign-up is live",
+    bullets: [
+      "Anyone can now create an OpenCauldron account — the /login screen has a Sign in / Sign up toggle and the same Google + magic-link options work for both flows",
+      "First-time signups land on a quick onboarding step to confirm a display name, name their workspace, and accept the Terms and Privacy Policy",
+      "The new /terms and /privacy pages are reachable without an account so people can read them before signing up",
+    ],
+  },
+  {
+    date: "2026-05-07",
     title: "Bulk actions in Library and Gallery",
     bullets: [
       "Hover any card to reveal a checkbox — click to select, shift-click to extend a range, ⌘/Ctrl+A to select everything loaded, Esc to clear",

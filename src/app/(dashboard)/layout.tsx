@@ -26,7 +26,7 @@ export default async function DashboardLayout({
     name: session.user.name,
     email: session.user.email,
     image: session.user.image,
-    role: (session.user as Record<string, unknown>).role as string ?? "member",
+    role: session.user.role ?? "member",
   };
 
   const userId = session.user.id as string;

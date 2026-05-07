@@ -72,6 +72,15 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
 
+  // Resend email magic-link (optional — provider is only registered when
+  // both vars are set, so self-host installs without Resend keep working).
+  RESEND_API_KEY: z.string().optional(),
+  RESEND_FROM_EMAIL: z
+    .string()
+    .optional()
+    .transform((v) => (v === "" ? undefined : v))
+    .pipe(z.string().email().optional()),
+
   // Storage
   STORAGE_PROVIDER: z.enum(["local", "r2"]).default("local"),
 
