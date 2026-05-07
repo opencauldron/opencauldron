@@ -81,6 +81,7 @@ import {
 import type { promptModifiers as PromptModifiersType } from "@/providers/prompt-improver";
 import { LoraBrowser } from "./lora-browser";
 import { PromptToolbar } from "./prompt-toolbar";
+import { CampaignPicker } from "@/components/asset/campaign-picker";
 
 interface GenerateClientProps {
   imageModels: ModelInfo[];
@@ -2384,6 +2385,30 @@ export function GenerateClient({
                   );
                 })}
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Campaign tagger — only renders when the active brand is non-personal
+            AND the viewer is a brand creator (creator+, brand manager, or
+            workspace admin/owner). Picker hides itself otherwise. */}
+        {activeBrand && !activeBrand.isPersonal && (
+          <Card>
+            <CardContent className="px-4 py-4">
+              <CampaignPicker
+                assetId={generatedAsset.id}
+                brandId={activeBrand.id}
+                campaigns={
+                  activeCampaignId
+                    ? (() => {
+                        const opt = campaignOptions.find(
+                          (c) => c.id === activeCampaignId
+                        );
+                        return opt ? [{ id: opt.id, name: opt.name }] : [];
+                      })()
+                    : []
+                }
+              />
             </CardContent>
           </Card>
         )}

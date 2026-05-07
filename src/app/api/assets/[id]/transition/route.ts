@@ -11,26 +11,21 @@
  *   - archive:       canRejectOrArchive
  *   - unarchive:     canRejectOrArchive (admin restoration path)
  *
- * The state transition + audit row are written atomically inside transitions.ts.
+ * Mutation logic lives in `@/lib/assets/mutations`; this route is the HTTP
+ * adapter for the single-asset case. The bulk endpoint reuses the same
+ * helper.
  */
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { assets, brands } from "@/lib/db/schema";
+import { assets } from "@/lib/db/schema";
 import {
-  createNotification,
-  createNotifications,
-  loadSubmitRecipients,
-  type NotificationInput,
-} from "@/lib/notifications";
-import {
-  checkTransitionPermission,
-  TransitionError,
-  transitionAsset,
-  type TransitionAction,
-} from "@/lib/transitions";
+  AssetMutationError,
+  transitionAssetMutation,
+} from "@/lib/assets/mutations";
+import { type TransitionAction } from "@/lib/transitions";
 import {
   loadBrandContext,
   loadRoleContext,
@@ -69,6 +64,9 @@ export async function POST(
       brandId: assets.brandId,
       status: assets.status,
       prompt: assets.prompt,
+      r2Key: assets.r2Key,
+      thumbnailR2Key: assets.thumbnailR2Key,
+      webpR2Key: assets.webpR2Key,
     })
     .from(assets)
     .where(eq(assets.id, id))
@@ -77,7 +75,6 @@ export async function POST(
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
   if (!asset.brandId) {
-    // Agency-DAM data invariant: every asset has a brandId post-Phase-2 backfill.
     return NextResponse.json({ error: "asset_missing_brand" }, { status: 409 });
   }
 
@@ -91,46 +88,14 @@ export async function POST(
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
-  // Synthesize creator role on Personal brand if the membership row is missing —
-  // mirrors the same carve-out in /api/generate so the user can always
-  // archive/unarchive their own scratch space.
-  if (
-    brandCtx.isPersonal &&
-    brandCtx.ownerId === userId &&
-    !ctx.brandMemberships.has(brandCtx.id)
-  ) {
-    ctx.brandMemberships.set(brandCtx.id, "creator");
-  }
-
-  const allowed = checkTransitionPermission(
-    action as TransitionAction,
-    ctx,
-    asset,
-    brandCtx
-  );
-  if (!allowed.ok) {
-    return NextResponse.json({ error: allowed.code }, { status: allowed.status });
-  }
-
   try {
-    const result = await transitionAsset({
-      assetId: asset.id,
-      actorId: userId,
+    const result = await transitionAssetMutation({
+      asset,
       action: action as TransitionAction,
-      note,
-    });
-
-    // Best-effort fan-out — a notification write failure must not roll back
-    // the transition (the audit log is the system of record). We swallow and
-    // log; the bell will just miss this event.
-    void fanOutNotifications({
-      action: action as TransitionAction,
+      ctx,
+      brandCtx,
       actorId: userId,
-      asset: { id: asset.id, userId: asset.userId, prompt: asset.prompt },
-      brand: brandCtx,
       note,
-    }).catch((err) => {
-      console.error("notifications.fanOut failed", err);
     });
 
     return NextResponse.json({
@@ -140,83 +105,9 @@ export async function POST(
       toStatus: result.toStatus,
     });
   } catch (err) {
-    if (err instanceof TransitionError) {
+    if (err instanceof AssetMutationError) {
       return NextResponse.json({ error: err.code }, { status: err.status });
     }
     throw err;
   }
-}
-
-interface FanOutInput {
-  action: TransitionAction;
-  actorId: string;
-  asset: { id: string; userId: string; prompt: string };
-  brand: { id: string; workspaceId: string };
-  note?: string;
-}
-
-async function fanOutNotifications(input: FanOutInput): Promise<void> {
-  const { action, actorId, asset, brand, note } = input;
-  if (action !== "submit" && action !== "approve" && action !== "reject") {
-    return;
-  }
-
-  // Brand slug for the review queue href. Fall back to id if unset.
-  const [brandRow] = await db
-    .select({ slug: brands.slug, name: brands.name })
-    .from(brands)
-    .where(eq(brands.id, brand.id))
-    .limit(1);
-  const brandSlug = brandRow?.slug ?? brand.id;
-  const brandName = brandRow?.name ?? null;
-  const reviewHref = `/brands/${brandSlug}/review`;
-  const assetTitle = excerpt(asset.prompt);
-
-  if (action === "submit") {
-    const recipients = await loadSubmitRecipients({
-      actorId,
-      brandId: brand.id,
-      workspaceId: brand.workspaceId,
-    });
-    const inputs: NotificationInput[] = recipients.map((userId) => ({
-      userId,
-      workspaceId: brand.workspaceId,
-      actorId,
-      type: "asset_submitted",
-      payload: {
-        assetId: asset.id,
-        brandId: brand.id,
-        brandName,
-        assetTitle,
-      },
-      href: reviewHref,
-    }));
-    await createNotifications(inputs);
-    return;
-  }
-
-  // approve / reject — notify the uploader if they aren't the actor.
-  if (asset.userId === actorId) return;
-
-  // No dedicated asset-detail page exists yet; link to the brand review queue.
-  await createNotification({
-    userId: asset.userId,
-    workspaceId: brand.workspaceId,
-    actorId,
-    type: action === "approve" ? "asset_approved" : "asset_rejected",
-    payload: {
-      assetId: asset.id,
-      brandId: brand.id,
-      brandName,
-      assetTitle,
-      ...(note ? { note } : {}),
-    },
-    href: reviewHref,
-  });
-}
-
-function excerpt(text: string, max = 80): string {
-  const trimmed = text.trim();
-  if (trimmed.length <= max) return trimmed;
-  return trimmed.slice(0, max - 1) + "…";
 }
