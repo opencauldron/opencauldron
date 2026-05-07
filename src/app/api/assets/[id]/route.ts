@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { assets, assetBrands, assetTags, brands, users } from "@/lib/db/schema";
-import { getAssetUrl, deleteFile, refreshImageInputUrls } from "@/lib/storage";
-import { canRead, loadRoleContext } from "@/lib/workspace/permissions";
+import { getAssetUrl, refreshImageInputUrls } from "@/lib/storage";
+import {
+  canRead,
+  loadBrandContext,
+  loadRoleContext,
+} from "@/lib/workspace/permissions";
+import { AssetMutationError, deleteAsset } from "@/lib/assets/mutations";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -253,13 +258,16 @@ export async function DELETE(
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-
+  const userId = session.user.id;
   const { id } = await params;
 
   const [asset] = await db
     .select({
       id: assets.id,
+      userId: assets.userId,
+      brandId: assets.brandId,
       status: assets.status,
+      prompt: assets.prompt,
       r2Key: assets.r2Key,
       thumbnailR2Key: assets.thumbnailR2Key,
       webpR2Key: assets.webpR2Key,
@@ -272,27 +280,29 @@ export async function DELETE(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // FR-011: approved assets are immutable; archive instead of deleting.
-  if (asset.status === "approved") {
-    return immutableResponse(asset.id);
-  }
+  // Per-asset auth via the shared helper. The helper preserves the FR-011
+  // approved-immutability guard (returns 409 with the legacy code so the
+  // existing client-side fork-prompt continues to work) and adds the
+  // creator/brand_manager/workspace-admin gate.
+  const brandCtx = asset.brandId ? await loadBrandContext(asset.brandId) : null;
+  const ctx = await loadRoleContext(
+    userId,
+    brandCtx?.workspaceId ?? ""
+  );
 
-  // Delete from storage
   try {
-    await deleteFile(asset.r2Key);
-    if (asset.thumbnailR2Key) {
-      await deleteFile(asset.thumbnailR2Key);
+    await deleteAsset({ asset, ctx, brandCtx, actorId: userId });
+  } catch (err) {
+    if (err instanceof AssetMutationError) {
+      // Preserve the legacy 409 shape with `forkUrl` for approved-immutable
+      // so the existing client behavior is unchanged.
+      if (err.code === "asset_immutable") {
+        return immutableResponse(asset.id);
+      }
+      return NextResponse.json({ error: err.code }, { status: err.status });
     }
-    if (asset.webpR2Key) {
-      await deleteFile(asset.webpR2Key);
-    }
-  } catch (error) {
-    // Log but don't fail - asset will be orphaned in storage
-    console.error("Failed to delete from storage:", error);
+    throw err;
   }
-
-  // Delete from DB (cascade will handle asset_brands and asset_tags)
-  await db.delete(assets).where(eq(assets.id, id));
 
   return NextResponse.json({ success: true });
 }
